@@ -1,26 +1,15 @@
+"""
+Simplified Client without psutil dependency
+For testing when psutil is not available
+Simulates metrics with random values
+"""
+
 import socket
 import threading
 import time
+import random
 import os
-import psutil
 from datetime import datetime
-
-# Server configuration
-HOST = '127.0.0.1'
-PORT = 5050
-REPORT_INTERVAL = 10  # Send report every 10 seconds
-
-
-def get_system_metrics():
-    """Collect CPU and RAM usage metrics."""
-    try:
-        cpu_pct = psutil.cpu_percent(interval=1)
-        ram_info = psutil.virtual_memory()
-        ram_mb = ram_info.used / (1024 * 1024)  # Convert to MB
-        return cpu_pct, ram_mb
-    except Exception as e:
-        print(f"Error collecting metrics: {e}")
-        return 0.0, 0.0
 
 
 def send_message(sock, message):
@@ -34,20 +23,27 @@ def send_message(sock, message):
         return None
 
 
+def get_random_metrics():
+    """Generate random metrics for testing (no psutil required)."""
+    cpu_pct = round(random.uniform(10, 80), 1)
+    ram_mb = round(random.uniform(1024, 4096), 0)
+    return cpu_pct, ram_mb
+
+
 def report_thread(sock, agent_id):
-    """Periodically send REPORT messages."""
+    """Periodically send REPORT messages with simulated metrics."""
     while True:
         try:
-            time.sleep(REPORT_INTERVAL)
+            time.sleep(10)  # Send every 10 seconds
             
-            cpu_pct, ram_mb = get_system_metrics()
+            cpu_pct, ram_mb = get_random_metrics()
             timestamp = int(time.time())
             
-            message = f"REPORT {agent_id} {timestamp} {cpu_pct:.1f} {ram_mb:.0f}"
+            message = f"REPORT {agent_id} {timestamp} {cpu_pct} {ram_mb}"
             response = send_message(sock, message)
             
             if response == 'OK':
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Report sent: CPU={cpu_pct:.1f}% RAM={ram_mb:.0f}MB")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Report sent: CPU={cpu_pct}% RAM={ram_mb:.0f}MB")
             else:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Report rejected: {response}")
         
@@ -58,14 +54,17 @@ def report_thread(sock, agent_id):
 
 def main():
     """Main client function."""
+    HOST = '127.0.0.1'
+    PORT = 5050
+    
     # Get agent configuration
     agent_id = input("Enter agent ID (default: agent1): ").strip() or "agent1"
     hostname = socket.gethostname()
     
-    print(f"Agent Configuration:")
+    print(f"\nAgent Configuration:")
     print(f"  ID: {agent_id}")
     print(f"  Hostname: {hostname}")
-    print(f"  Report Interval: {REPORT_INTERVAL}s")
+    print(f"  Report Interval: 10s (with simulated metrics)")
     print(f"  Connecting to {HOST}:{PORT}\n")
     
     try:
@@ -89,7 +88,7 @@ def main():
         report_thread_obj = threading.Thread(target=report_thread, args=(client_socket, agent_id), daemon=True)
         report_thread_obj.start()
         
-        # Main loop - keep connection alive and handle user input
+        # Main loop - keep connection alive
         print("Agent is running... Press Ctrl+C to disconnect\n")
         while True:
             try:
@@ -109,7 +108,7 @@ def main():
     
     except ConnectionRefusedError:
         print(f"Error: Could not connect to server at {HOST}:{PORT}")
-        print("Make sure the server is running")
+        print("Make sure the server is running: python server.py")
     except Exception as e:
         print(f"Error: {e}")
     
