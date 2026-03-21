@@ -5,24 +5,28 @@ Tests all required scenarios from project specification
 
 import socket
 import time
-import threading
-import subprocess
-import sys
+import uuid
 
 
 class TestClient:
     """Helper class for testing protocol messages."""
     
-    def __init__(self, host='127.0.0.1', port=5050):
+    def __init__(self, host='127.0.0.1', port=5050, protocol='TCP'):
         self.host = host
         self.port = port
+        self.protocol = protocol
         self.sock = None
     
     def connect(self):
         """Connect to server."""
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((self.host, self.port))
+            if self.protocol == 'UDP':
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.sock.settimeout(2)
+                self.sock.connect((self.host, self.port))
+            else:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((self.host, self.port))
             return True
         except Exception as e:
             print(f"Connection failed: {e}")
@@ -31,7 +35,10 @@ class TestClient:
     def send_raw(self, message):
         """Send raw message and get response."""
         try:
-            self.sock.send((message + '\n').encode('utf-8'))
+            if self.protocol == 'UDP':
+                self.sock.send(message.encode('utf-8'))
+            else:
+                self.sock.send((message + '\n').encode('utf-8'))
             response = self.sock.recv(1024).decode('utf-8').strip()
             return response
         except Exception as e:
@@ -318,6 +325,70 @@ def test_6_disconnect_and_reconnect():
     return True
 
 
+def test_7_udp_flow():
+    """Test 7: UDP registration/report/disconnect."""
+    print("\n" + "="*60)
+    print("TEST 7: UDP Flow")
+    print("="*60)
+
+    agent_id = "udp_test_agent"
+    client = TestClient(protocol='UDP')
+    if not client.connect():
+        print("❌ FAILED: Could not create UDP client")
+        return False
+
+    response = client.send_raw(f"HELLO {agent_id} WORKSTATION")
+    if response != 'OK':
+        print(f"❌ FAILED: UDP HELLO rejected: {response}")
+        return False
+
+    response = client.send_raw(f"REPORT {agent_id} 1700000000 33.3 1800")
+    if response != 'OK':
+        print(f"❌ FAILED: UDP REPORT rejected: {response}")
+        return False
+
+    response = client.send_raw(f"BYE {agent_id}")
+    if response != 'OK':
+        print(f"❌ FAILED: UDP BYE rejected: {response}")
+        return False
+
+    client.close()
+    print("✓ PASSED: UDP flow works")
+    return True
+
+
+def test_8_uuid_agent_id():
+    """Test 8: UUID as agent_id should be accepted."""
+    print("\n" + "="*60)
+    print("TEST 8: UUID Agent ID")
+    print("="*60)
+
+    agent_id = str(uuid.uuid4())
+    client = TestClient()
+    if not client.connect():
+        print("❌ FAILED: Could not connect")
+        return False
+
+    response = client.send_raw(f"HELLO {agent_id} WORKSTATION")
+    if response != 'OK':
+        print(f"❌ FAILED: UUID HELLO rejected: {response}")
+        return False
+
+    response = client.send_raw(f"REPORT {agent_id} 1700000000 12.2 1024")
+    if response != 'OK':
+        print(f"❌ FAILED: UUID REPORT rejected: {response}")
+        return False
+
+    response = client.send_raw(f"BYE {agent_id}")
+    if response != 'OK':
+        print(f"❌ FAILED: UUID BYE rejected: {response}")
+        return False
+
+    client.close()
+    print("✓ PASSED: UUID agent ID accepted")
+    return True
+
+
 def run_all_tests():
     """Run all tests."""
     print("\n\n")
@@ -336,6 +407,8 @@ def run_all_tests():
         "Test 4: Unregistered Agent": test_4_unregistered_agent(),
         "Test 5: Metric Validation": test_5_metric_validation(),
         "Test 6: Disconnect/Reconnect": test_6_disconnect_and_reconnect(),
+        "Test 7: UDP Flow": test_7_udp_flow(),
+        "Test 8: UUID Agent ID": test_8_uuid_agent_id(),
     }
     
     # Summary

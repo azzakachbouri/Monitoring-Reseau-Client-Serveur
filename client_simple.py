@@ -8,11 +8,16 @@ import socket
 import threading
 import time
 import random
-import os
+import uuid
 from datetime import datetime
 
 
-def send_message(sock, message):
+HOST = '127.0.0.1'
+PORT = 5050
+REPORT_INTERVAL = 10
+
+
+def send_message_tcp(sock, message):
     """Send a message to the server and receive response."""
     try:
         sock.send((message + '\n').encode('utf-8'))
@@ -23,6 +28,17 @@ def send_message(sock, message):
         return None
 
 
+def send_message_udp(sock, message):
+    """Send one UDP message and wait for one response."""
+    try:
+        sock.send(message.encode('utf-8'))
+        response = sock.recv(1024).decode('utf-8').strip()
+        return response
+    except Exception as e:
+        print(f"Error communicating with server (UDP): {e}")
+        return None
+
+
 def get_random_metrics():
     """Generate random metrics for testing (no psutil required)."""
     cpu_pct = round(random.uniform(10, 80), 1)
@@ -30,17 +46,20 @@ def get_random_metrics():
     return cpu_pct, ram_mb
 
 
-def report_thread(sock, agent_id):
+def report_thread(sock, agent_id, protocol):
     """Periodically send REPORT messages with simulated metrics."""
     while True:
         try:
-            time.sleep(10)  # Send every 10 seconds
+            time.sleep(REPORT_INTERVAL)
             
             cpu_pct, ram_mb = get_random_metrics()
             timestamp = int(time.time())
             
             message = f"REPORT {agent_id} {timestamp} {cpu_pct} {ram_mb}"
-            response = send_message(sock, message)
+            if protocol == 'UDP':
+                response = send_message_udp(sock, message)
+            else:
+                response = send_message_tcp(sock, message)
             
             if response == 'OK':
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Report sent: CPU={cpu_pct}% RAM={ram_mb:.0f}MB")
@@ -52,30 +71,69 @@ def report_thread(sock, agent_id):
             break
 
 
+def run_attack_mode(sock, agent_id, protocol, burst_count):
+    """Send a burst of REPORT messages for stress testing."""
+    print(f"\n[ATTACK] Sending {burst_count} REPORT messages using {protocol}...")
+    ok_count = 0
+    start = time.time()
+
+    for _ in range(burst_count):
+        cpu_pct, ram_mb = get_random_metrics()
+        timestamp = int(time.time())
+        message = f"REPORT {agent_id} {timestamp} {cpu_pct} {ram_mb}"
+
+        if protocol == 'UDP':
+            response = send_message_udp(sock, message)
+        else:
+            response = send_message_tcp(sock, message)
+
+        if response == 'OK':
+            ok_count += 1
+
+    print(f"[ATTACK] Completed in {time.time() - start:.2f}s - accepted: {ok_count}/{burst_count}")
+
+
 def main():
     """Main client function."""
-    HOST = '127.0.0.1'
-    PORT = 5050
-    
     # Get agent configuration
-    agent_id = input("Enter agent ID (default: agent1): ").strip() or "agent1"
+    generated_uuid = str(uuid.uuid4())
+    agent_id = input(f"Enter agent ID (default UUID: {generated_uuid}): ").strip() or generated_uuid
+    protocol = input("Protocol TCP or UDP? (default: TCP): ").strip().upper() or 'TCP'
+    if protocol not in ('TCP', 'UDP'):
+        protocol = 'TCP'
+
+    attack_choice = input("Enable attack simulation (massive REPORT burst)? (y/N): ").strip().lower()
+    burst_count = 0
+    if attack_choice == 'y':
+        burst_text = input("How many REPORT messages for attack (default: 100): ").strip()
+        burst_count = int(burst_text) if burst_text.isdigit() else 100
+
     hostname = socket.gethostname()
     
     print(f"\nAgent Configuration:")
     print(f"  ID: {agent_id}")
+    print(f"  Protocol: {protocol}")
     print(f"  Hostname: {hostname}")
-    print(f"  Report Interval: 10s (with simulated metrics)")
+    print(f"  Report Interval: {REPORT_INTERVAL}s (with simulated metrics)")
     print(f"  Connecting to {HOST}:{PORT}\n")
     
     try:
-        # Create socket and connect to server
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((HOST, PORT))
-        print("Connected to server\n")
+        if protocol == 'UDP':
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.settimeout(2)
+            client_socket.connect((HOST, PORT))
+            print("UDP socket ready\n")
+        else:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((HOST, PORT))
+            print("Connected to server\n")
         
         # Send HELLO message
         hello_msg = f"HELLO {agent_id} {hostname}"
-        response = send_message(client_socket, hello_msg)
+        if protocol == 'UDP':
+            response = send_message_udp(client_socket, hello_msg)
+        else:
+            response = send_message_tcp(client_socket, hello_msg)
         
         if response != 'OK':
             print(f"Registration failed: {response}")
@@ -83,9 +141,16 @@ def main():
             return
         
         print(f"Successfully registered as {agent_id}\n")
+
+        if burst_count > 0:
+            run_attack_mode(client_socket, agent_id, protocol, burst_count)
         
         # Start background thread for periodic reports
-        report_thread_obj = threading.Thread(target=report_thread, args=(client_socket, agent_id), daemon=True)
+        report_thread_obj = threading.Thread(
+            target=report_thread,
+            args=(client_socket, agent_id, protocol),
+            daemon=True
+        )
         report_thread_obj.start()
         
         # Main loop - keep connection alive
@@ -99,7 +164,10 @@ def main():
         
         # Send BYE message
         bye_msg = f"BYE {agent_id}"
-        response = send_message(client_socket, bye_msg)
+        if protocol == 'UDP':
+            response = send_message_udp(client_socket, bye_msg)
+        else:
+            response = send_message_tcp(client_socket, bye_msg)
         
         if response == 'OK':
             print("Successfully unregistered from server")
