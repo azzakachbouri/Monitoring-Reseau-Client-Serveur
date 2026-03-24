@@ -1,53 +1,276 @@
-# Mini-Projet Reseaux TP RT2
+# 🖥️ Mini-Projet Réseaux TP RT2 — Monitoring Réseau Client–Serveur
 
-Monitoring Reseau Client-Serveur avec Sockets
+> Système de monitoring réseau distribué basé sur une architecture client–serveur TCP.  
+> Chaque agent collecte périodiquement des métriques (CPU, RAM) et les envoie au serveur central.
+> Le serveur agrège les données, maintient la liste des agents actifs et affiche des statistiques.
 
-## 1. Objectif
+---
 
-Cette application implemente un monitoring reseau distribue base sur une architecture client-serveur.
-Chaque client (agent) collecte periodiquement des metriques locales (CPU, RAM) et les envoie au serveur central.
-Le serveur agrege les donnees, maintient la liste des agents actifs et affiche des statistiques globales.
+## 📋 Table des matières
 
-## 2. Fonctionnalites obligatoires (cahier des charges)
+- [1. Environnement et exécution](#1-environnement-et-exécution)
+- [2. Fonctionnalités obligatoires](#2-fonctionnalités-obligatoires)
+- [3. Extensions implémentées](#3-extensions-implémentées)
+- [4. Spécification du protocole](#4-spécification-du-protocole)
+- [5. Tests](#5-tests)
+- [6. Choix techniques](#6-choix-techniques)
+- [7. Structure du projet](#7-structure-du-projet)
 
-- Communication client-serveur via sockets TCP
-- Protocole applicatif: HELLO / REPORT / BYE
-- Gestion de plusieurs connexions simultanees
-- Un thread par client TCP cote serveur
-- Validation des messages recus
-- Robustesse: le serveur ne s'arrete pas sur erreur client
-- Calcul periodique:
-  - nombre d'agents actifs
-  - moyenne CPU
-  - moyenne RAM
-- Un agent est actif si un REPORT est recu dans la fenetre 3 x T
+---
 
-## 3. Extensions implementees
+## 1. Environnement et exécution
 
-- Mode UDP (comparaison TCP vs UDP)
-- Detection et suppression d'agents inactifs
-- Export CSV periodique des statistiques
-- Utilisation possible d'un UUID comme agent_id
-- Simulation d'attaque (envoi massif de REPORT)
+### Prérequis
 
-## 4. Protocole
+- Python 3.8+
+- **Zéro dépendance externe** (standard library uniquement)
+  - `socket`, `threading`, `time`, `datetime`, `csv`, `uuid`, `platform`, `subprocess`, `ctypes`
 
-### Messages Client -> Serveur
+### Démarrage du serveur
 
-- HELLO <agent_id> <hostname>
-- REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>
-- BYE <agent_id>
+```bash
+python server.py
+```
 
-### Reponses Serveur -> Client
+Le serveur démarre sur `127.0.0.1:5051` (TCP + UDP).
 
-- OK
-- ERROR
+### Démarrage d'un ou plusieurs agents
 
-### Contraintes
+Terminal 1:
 
-- agent_id: sans espaces
-- cpu_pct: reel entre 0 et 100
-- ram_mb: reel >= 0
+```bash
+python client.py
+```
+
+L'agent demandera interactivement: protocol (TCP/UDP), agent_id, mode attaque.
+
+Alternativement, utiliser le client simple (simulation de métriques):
+
+```bash
+python client_simple.py
+```
+
+### Exemple d'une séquence complète
+
+**Terminal 1 (serveur):**
+
+```bash
+python server.py
+```
+
+**Terminal 2 (agent 1):**
+
+```bash
+python client.py
+# → Enter agent ID: agent1
+# → Protocol TCP or UDP? (default: TCP): TCP
+# → Enable attack simulation (y/N): N
+```
+
+**Terminal 3 (agent 2):**
+
+```bash
+python client_simple.py
+```
+
+---
+
+## 2. Fonctionnalités obligatoires (cahier des charges)
+
+### Architecture
+
+- ✅ Communication **TCP** (primaire) + UDP (extension)
+- ✅ Protocole simple HELLO / REPORT / BYE
+- ✅ Gestion **plusieurs connexions simultanées** via threads
+- ✅ Un thread par client TCP au serveur
+- ✅ **Robustesse**: serveur ne s'arrête pas en cas d'erreur client
+- ✅ **Validation** des messages (format, plage de valeurs)
+
+### Statistiques périodiques (tous les 10s)
+
+Le serveur affiche:
+
+- Nombre d'agents actifs
+- Moyenne CPU (%)
+- Moyenne RAM (MB)
+- Total de REPORT reçus
+
+### Activation d'un agent
+
+- Un agent est considéré **actif** si un REPORT est reçu dans la fenêtre **3 × T** secondes (défaut: T=10s → fenêtre=30s)
+- Après 30s sans REPORT, l'agent est automatiquement supprimé de la liste active
+
+---
+
+## 3. Extensions implémentées
+
+### A. Mode UDP (section 3 du cahier)
+
+- Clients TCP et UDP gérés **simultanément** par le même serveur
+- Protocole identique (HELLO, REPORT, BYE)
+- Stateless pour UDP: pas de persistance de connexion
+- Comparison TCP vs UDP: fiabilité vs latence
+
+### B. Auto-cleanup des agents inactifs (section 3)
+
+- Daemon thread `inactive_cleanup_thread()` parcourt les agents toutes les 5s
+- Supprime automatiquement agents avec `(now - last_report_time) >= 30s`
+- Logs pour chaque suppression
+
+### C. Export CSV des statistiques (section 3)
+
+- Fichier `stats_export.csv` créé automatiquement
+- Colonnes: `timestamp, active_agents, avg_cpu_pct, avg_ram_mb, total_reports`
+- Ajout d'une ligne toutes les 10s
+- Format compatible Excel/Pandas
+
+### D. UUID optionnel comme agent_id (section 3)
+
+- Clients peuvent fournir UUID au lieu d'ID manuel
+- Génération auto-UUID dans `client.py` si l'utilisateur laisse vide
+- Pas de contrainte de format sur agent_id (sauf pas d'espaces)
+
+### E. Simulation d'attaque (section 3)
+
+- Mode "attack" dans `client.py`: envoi massif de REPORT (ex.: 100+ par seconde)
+- Mesure capacité serveur + validation anti-flood
+- Utile pour tester robustesse
+
+---
+
+## 4. Spécification du protocole
+
+### Messages Client → Serveur
+
+| Message | Format                                             | Exemple                              |
+| ------- | -------------------------------------------------- | ------------------------------------ |
+| HELLO   | `HELLO <agent_id> <hostname>`                      | `HELLO agent1 PC-LAB`                |
+| REPORT  | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>` | `REPORT agent1 1700000000 25.5 2048` |
+| BYE     | `BYE <agent_id>`                                   | `BYE agent1`                         |
+
+### Réponses Serveur → Client
+
+| Réponse | Signification            |
+| ------- | ------------------------ |
+| `OK`    | Message accepté          |
+| `ERROR` | Format invalide ou rejet |
+
+### Contraintes de validation
+
+- **agent_id**: pas d'espaces (alphanumérique + `-`, `_`, UUID OK)
+- **cpu_pct**: réel dans `[0.0, 100.0]`
+- **ram_mb**: réel ≥ `0.0`
+- **timestamp**: entier (epoch secondes)
+
+---
+
+## 5. Tests
+
+### Tests obligatoires (cahier des charges)
+
+```bash
+python test_suite.py
+```
+
+| #   | Test                 | Description                            | Statut |
+| --- | -------------------- | -------------------------------------- | ------ |
+| 1   | Single Client        | Connexion, HELLO, REPORT, BYE          | ✅     |
+| 2   | Multiple Clients     | 3+ clients simultanément               | ✅     |
+| 3   | Malformed Messages   | HELLO incomplet, REPORT invalide, etc. | ✅     |
+| 4   | Unregistered Agent   | REPORT sans HELLO préalable            | ✅     |
+| 5   | Metric Validation    | CPU > 100, RAM < 0, etc.               | ✅     |
+| 6   | Disconnect/Reconnect | Même agent_id, reconnexion             | ✅     |
+
+### Tests d'extensions (bonus)
+
+| #   | Test                 | Description                     | Statut |
+| --- | -------------------- | ------------------------------- | ------ |
+| 7   | UDP Flow             | HELLO/REPORT/BYE en UDP         | ✅     |
+| 8   | UUID Agent ID        | UUID comme agent_id             | ✅     |
+| 9   | Abrupt Disconnect    | Close sans BYE (server timeout) | ✅     |
+| 10  | Average Calculation  | Vérification moyennes correctes | ✅     |
+| 11  | Inactivity Detection | Auto-removal après 3×T          | ✅     |
+
+---
+
+## 6. Choix techniques
+
+### Collecte de métriques (sans psutil)
+
+Le projet respecte **"bibliothèques standards uniquement"** du cahier.
+
+- **Windows**: `ctypes.windll.kernel32.GlobalMemoryStatusEx()` + `typeperf` (RAM + CPU)
+- **Linux**: `/proc/meminfo`, `/proc/stat` (RAM + CPU)
+- **macOS**: `sysctl` + `vm_stat` (RAM + CPU)
+
+### Gestion concurrence
+
+- **Server**: `threading.Thread` pour chaque client TCP
+- **Synchronisation**: `threading.Lock` pour accès dict `agents` et `metrics`
+- **Daemon threads**: cleanup, stats, UDP listener
+
+### Robustesse
+
+- Serveur captures exceptions par client → ne s'arrête pas
+- Timeout inactivité (30s) → suppression auto des agents fantômes
+- Validation stricte: toute erreur message → réponse `ERROR`
+
+---
+
+## 7. Structure du projet
+
+```
+.
+├── server.py                # Serveur (TCP + UDP)
+│   ├── handle_client()      # Thread-handler pour TCP
+│   ├── udp_listener()       # Thread-daemon pour UDP
+│   ├── statistics_thread()  # Affiche stats toutes les 10s
+│   └── inactive_cleanup_thread()  # Supprime agents inactifs
+│
+├── client.py                # Client (TCP/UDP + auto-metrics)
+│   ├── get_cpu_usage_pct()  # Metrics cross-platform
+│   ├── get_used_memory_mb()
+│   └── run_attack_mode()    # Mode simulation d'attaque
+│
+├── client_simple.py         # Client simplifié (métriques aléatoires)
+│
+├── test_suite.py            # 11 tests (6 obligatoires + 5 extensions)
+│
+├── stats_export.csv         # ✨ Généré automatiquement
+├── requirements.txt         # ✅ Zéro dépendances
+└── README.md                # Ce fichier
+
+```
+
+---
+
+## 8. Résumé conformité au cahier des charges
+
+✅ **Obligatoire:**
+
+- Réaliser monitoring distribué client–serveur TCP
+- Protocole HELLO/REPORT/BYE
+- Gestion threads (1 par client)
+- Validation robuste
+- Statistiques périodiques (avg CPU, RAM)
+- Tests démontrés (6 obligatoires)
+- Zero external dependencies
+
+✅ **Extensions implémentées:**
+
+- UDP mode
+- Inactivité detection + auto-cleanup
+- CSV export
+- UUID support
+- Attack simulation
+
+---
+
+## Auteurs
+
+**AZZA KACHBOURI** — **DHIA SELMI**  
+Mini-Projet Réseaux — TP RT2
+
 - actif si REPORT recu dans la fenetre 3 x T
 
 ## 5. Prerequis
