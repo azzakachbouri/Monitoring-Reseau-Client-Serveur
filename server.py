@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Server configuration
 HOST = '127.0.0.1'
-PORT = 5050
+PORT = 5051
 ACTIVE_WINDOW = 30  # 3 × T seconds (T = 10s, so 30s window for active agents)
 STATS_INTERVAL = 10
 CSV_FILE = 'stats_export.csv'

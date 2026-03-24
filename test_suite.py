@@ -11,7 +11,7 @@ import uuid
 class TestClient:
     """Helper class for testing protocol messages."""
     
-    def __init__(self, host='127.0.0.1', port=5050, protocol='TCP'):
+    def __init__(self, host='127.0.0.1', port=5051, protocol='TCP'):
         self.host = host
         self.port = port
         self.protocol = protocol

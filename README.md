@@ -1,244 +1,131 @@
-# 🖥️ Network Monitoring — Client–Server with TCP Sockets
+# Mini-Projet Reseaux TP RT2
 
-> A distributed network monitoring application built with a TCP client–server architecture.  
-> Each agent collects local system metrics (CPU, RAM) and reports them to a central server in real time.
+Monitoring Reseau Client-Serveur avec Sockets
 
----
+## 1. Objectif
 
-## 📋 Table of Contents
+Cette application implemente un monitoring reseau distribue base sur une architecture client-serveur.
+Chaque client (agent) collecte periodiquement des metriques locales (CPU, RAM) et les envoie au serveur central.
+Le serveur agrege les donnees, maintient la liste des agents actifs et affiche des statistiques globales.
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Protocol Specification](#protocol-specification)
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [Testing](#testing)
-- [Project Structure](#project-structure)
-- [Possible Extensions](#possible-extensions)
-- [Authors](#authors)
+## 2. Fonctionnalites obligatoires (cahier des charges)
 
----
+- Communication client-serveur via sockets TCP
+- Protocole applicatif: HELLO / REPORT / BYE
+- Gestion de plusieurs connexions simultanees
+- Un thread par client TCP cote serveur
+- Validation des messages recus
+- Robustesse: le serveur ne s'arrete pas sur erreur client
+- Calcul periodique:
+  - nombre d'agents actifs
+  - moyenne CPU
+  - moyenne RAM
+- Un agent est actif si un REPORT est recu dans la fenetre 3 x T
 
-## Overview
+## 3. Extensions implementees
 
-This project implements a **distributed network monitoring system** using raw TCP sockets and threads. It was developed as part of the **TP RT2 – Réseaux** module.
+- Mode UDP (comparaison TCP vs UDP)
+- Detection et suppression d'agents inactifs
+- Export CSV periodique des statistiques
+- Utilisation possible d'un UUID comme agent_id
+- Simulation d'attaque (envoi massif de REPORT)
 
-Key capabilities:
+## 4. Protocole
 
-- Multiple agents connect simultaneously to a central server
-- Each agent reports CPU usage and RAM every `T` seconds
-- The server aggregates metrics, tracks active agents, and computes global averages
-- The server never crashes due to a single client error (fault-tolerant design)
+### Messages Client -> Serveur
 
----
+- HELLO <agent_id> <hostname>
+- REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>
+- BYE <agent_id>
 
-## Architecture
+### Reponses Serveur -> Client
 
-```
-┌──────────────┐        TCP        ┌─────────────────────────┐
-│  Agent 1     │ ────────────────► │                         │
-├──────────────┤                   │   Server (Collector)    │
-│  Agent 2     │ ────────────────► │                         │
-├──────────────┤                   │  - Thread per client    │
-│  Agent N     │ ────────────────► │  - Active agent list    │
-└──────────────┘                   │  - Global stats (avg)   │
-                                   └─────────────────────────┘
-```
+- OK
+- ERROR
 
-### Client (Agent)
+### Contraintes
 
-Each agent:
+- agent_id: sans espaces
+- cpu_pct: reel entre 0 et 100
+- ram_mb: reel >= 0
+- actif si REPORT recu dans la fenetre 3 x T
 
-1. Connects to the server via TCP
-2. Sends a `HELLO` registration message
-3. Periodically sends `REPORT` messages (CPU %, RAM MB) every `T` seconds
-4. Sends a `BYE` message on clean disconnect
+## 5. Prerequis
 
-### Server (Collector)
+- Python 3.8+
+- Bibliotheques standards uniquement (aucun pip install necessaire)
 
-The server:
+## 6. Lancer le projet
 
-1. Listens for and accepts multiple simultaneous connections
-2. Spawns a dedicated thread per client
-3. Maintains a live registry of active agents
-4. Periodically computes: active agent count, average CPU, average RAM
-5. Handles malformed messages and disconnections gracefully
-
----
-
-## Protocol Specification
-
-### Client → Server Messages
-
-| Message  | Format                                             | Description         |
-| -------- | -------------------------------------------------- | ------------------- |
-| `HELLO`  | `HELLO <agent_id> <hostname>`                      | Agent registration  |
-| `REPORT` | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>` | Metric report       |
-| `BYE`    | `BYE <agent_id>`                                   | Clean disconnection |
-
-### Server → Client Responses
-
-| Response | Meaning                       |
-| -------- | ----------------------------- |
-| `OK`     | Message accepted              |
-| `ERROR`  | Malformed or rejected message |
-
-### Constraints
-
-- `agent_id` — no spaces allowed
-- `cpu_pct` — float in range `[0.0, 100.0]`
-- `ram_mb` — float ≥ `0.0`
-- An agent is considered **active** if a `REPORT` was received within the last `3 × T` seconds
-
-### Example Exchange
-
-```
-Client  →  HELLO agent1 PC-LAB
-Server  →  OK
-
-Client  →  REPORT agent1 1700000000 25.5 2048
-Server  →  OK
-
-Client  →  BYE agent1
-Server  →  OK
-```
-
----
-
-## Prerequisites
-
-**Python version**
-
-```
-Python 3.8+
-```
-
-Only **standard library** modules are used:
-
-- `socket`
-- `threading`
-- `time`
-- `datetime`
-
-No external dependencies required — no `pip install` needed.
-
----
-
-## Getting Started
-
-**1. Clone the repository**
-
-```bash
-git clone https://github.com/<your-username>/<repo-name>.git
-cd <repo-name>
-```
-
-**2. Start the server**
+### 6.1 Demarrer le serveur
 
 ```bash
 python server.py
 ```
 
-The server will start listening on `localhost:9999` by default.
+Configuration par defaut:
 
-**3. Start one or more agents** (in separate terminals)
+- HOST = 127.0.0.1
+- PORT = 5051
+- STATS_INTERVAL = 10s
+- ACTIVE_WINDOW = 30s (3 x T)
 
-```bash
-python client.py --id agent1 --host localhost --port 9999 --interval 5
-```
-
-| Argument     | Default     | Description                       |
-| ------------ | ----------- | --------------------------------- |
-| `--id`       | `agent1`    | Unique agent identifier           |
-| `--host`     | `localhost` | Server address                    |
-| `--port`     | `9999`      | Server port                       |
-| `--interval` | `5`         | Reporting interval in seconds (T) |
-
----
-
-## Usage
-
-### Running multiple agents simultaneously
-
-Open several terminals and run:
+### 6.2 Demarrer un client
 
 ```bash
-# Terminal 1
-python client.py --id agent1 --host localhost --port 9999 --interval 5
-
-# Terminal 2
-python client.py --id agent2 --host localhost --port 9999 --interval 3
-
-# Terminal 3
-python client.py --id agent3 --host localhost --port 9999 --interval 7
+python client.py
 ```
 
-The server console will display live statistics:
+Le client vous demandera:
 
-```
-[SERVER] Active agents: 3
-[SERVER] Average CPU:   34.2%
-[SERVER] Average RAM:   1876.5 MB
-```
+- agent_id (UUID auto propose par defaut)
+- protocole (TCP par defaut, UDP possible)
+- activation du mode attaque (burst de REPORT)
 
-### Stopping an agent
+## 7. Tests
 
-Press `Ctrl+C` in the agent terminal. The agent will send a `BYE` message before exiting.
-
----
-
-## Testing
-
-The following test scenarios must be demonstrated:
-
-| #   | Test Case                     | Expected Result                                        |
-| --- | ----------------------------- | ------------------------------------------------------ |
-| 1   | Single client connection      | Server registers agent, responds `OK`                  |
-| 2   | Multiple simultaneous clients | All agents handled concurrently via threads            |
-| 3   | Abrupt client disconnect      | Server detects timeout, removes agent from active list |
-| 4   | Malformed message sent        | Server responds `ERROR`, stays running                 |
-| 5   | Average calculation           | Server computes correct CPU/RAM averages               |
-| 6   | Agent inactivity (> 3×T)      | Agent marked as inactive automatically                 |
-
-To run all tests:
+Lancer la suite de tests:
 
 ```bash
-python tests.py
+python test_suite.py
 ```
 
----
+La suite couvre:
 
-## Project Structure
+- connexion d'un seul client
+- connexions multiples simultanees
+- message mal forme
+- arret brutal d'un client
+- calcul/validation des metriques
+- inactivite d'un agent (> 3 x T)
+- extensions (UDP, UUID)
 
-```
+## 8. Structure du projet
+
+```text
 .
-├── server.py          # Server — accepts connections, manages threads & stats
-├── client.py          # Client agent — collects and sends metrics
-├── tests.py           # Automated test suite
-├── README.md          # This file
-└── rapport/
-    ├── rapport.pdf    # Technical report (architecture, protocol, choices)
-    └── tests.pdf      # Test report with screenshots
+|- server.py
+|- client.py
+|- client_simple.py
+|- test_suite.py
+|- run_demo.bat
+|- stats_export.csv
+|- requirements.txt
+|- README.md
 ```
 
----
+## 9. Livrables (rappel)
 
-## Possible Extensions
+- Code source complet (client + serveur)
+- Rapport (5 a 10 pages):
+  - architecture
+  - protocole
+  - choix techniques
+  - captures d'ecran
+  - difficultes rencontrees
+- Rapport des tests (3 a 4 pages)
+- README d'execution
 
-| Extension               | Description                                                |
-| ----------------------- | ---------------------------------------------------------- |
-| 🔁 UDP Mode             | Add a UDP transport option and compare reliability vs TCP  |
-| 🕵️ Inactivity Detection | Auto-flag and alert on silent agents                       |
-| 📊 CSV Export           | Periodically dump stats to a `.csv` file for analysis      |
-| 🔑 UUID Agents          | Replace manual `agent_id` with auto-generated UUIDs        |
-| 💥 Stress Test          | Simulate a flood attack with mass `REPORT` sending         |
-| 🌐 Web Dashboard        | Add a simple HTTP endpoint to visualize stats in a browser |
-| 🔐 Auth Layer           | Add a shared secret / token for agent authentication       |
+## Auteurs
 
----
-
-## Authors
-
-AZZA KACHBOURI \_ DHIA SELMI
-Developed as part of **Mini-Projet Réseaux — TP RT2**
+Azza Kachbouri - Dhia Selmi

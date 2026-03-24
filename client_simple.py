@@ -13,7 +13,7 @@ from datetime import datetime
 
 
 HOST = '127.0.0.1'
-PORT = 5050
+PORT = 5051
 REPORT_INTERVAL = 10
 
 

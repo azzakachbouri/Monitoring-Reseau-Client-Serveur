@@ -1,26 +1,159 @@
 import socket
 import threading
 import time
-import psutil
 import uuid
+import os
+import re
+import platform
+import subprocess
+import ctypes
 from datetime import datetime
 
 # Server configuration
 HOST = '127.0.0.1'
-PORT = 5050
+PORT = 5051
 REPORT_INTERVAL = 10  # Send report every 10 seconds
 
 
 def get_system_metrics():
-    """Collect CPU and RAM usage metrics."""
+    """Collect CPU and RAM usage metrics using only standard library tools."""
     try:
-        cpu_pct = psutil.cpu_percent(interval=1)
-        ram_info = psutil.virtual_memory()
-        ram_mb = ram_info.used / (1024 * 1024)  # Convert to MB
+        cpu_pct = get_cpu_usage_pct()
+        ram_mb = get_used_memory_mb()
         return cpu_pct, ram_mb
     except Exception as e:
         print(f"Error collecting metrics: {e}")
         return 0.0, 0.0
+
+
+def get_cpu_usage_pct():
+    """Return approximate system CPU usage percentage across platforms."""
+    system_name = platform.system()
+
+    if system_name == 'Windows':
+        return get_cpu_windows()
+
+    # Unix fallback: convert 1-minute load average to a rough CPU percentage.
+    if hasattr(os, 'getloadavg'):
+        load_1m = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 1
+        return max(0.0, min(100.0, (load_1m / cpu_count) * 100.0))
+
+    return 0.0
+
+
+def get_cpu_windows():
+    """Read global CPU usage on Windows via typeperf."""
+    try:
+        result = subprocess.run(
+            ['typeperf', r'\Processor(_Total)\% Processor Time', '-sc', '1'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        for line in reversed(result.stdout.splitlines()):
+            matches = re.findall(r'-?\d+(?:[\.,]\d+)?', line)
+            if matches:
+                value = float(matches[-1].replace(',', '.'))
+                return max(0.0, min(100.0, value))
+    except Exception:
+        pass
+    return 0.0
+
+
+def get_used_memory_mb():
+    """Return used RAM in MB using platform-specific standard-library methods."""
+    system_name = platform.system()
+    if system_name == 'Windows':
+        return get_used_memory_mb_windows()
+    if system_name == 'Linux':
+        return get_used_memory_mb_linux()
+    if system_name == 'Darwin':
+        return get_used_memory_mb_darwin()
+    return 0.0
+
+
+def get_used_memory_mb_windows():
+    """Get used memory on Windows via GlobalMemoryStatusEx."""
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ('dwLength', ctypes.c_ulong),
+            ('dwMemoryLoad', ctypes.c_ulong),
+            ('ullTotalPhys', ctypes.c_ulonglong),
+            ('ullAvailPhys', ctypes.c_ulonglong),
+            ('ullTotalPageFile', ctypes.c_ulonglong),
+            ('ullAvailPageFile', ctypes.c_ulonglong),
+            ('ullTotalVirtual', ctypes.c_ulonglong),
+            ('ullAvailVirtual', ctypes.c_ulonglong),
+            ('sullAvailExtendedVirtual', ctypes.c_ulonglong),
+        ]
+
+    mem_status = MEMORYSTATUSEX()
+    mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status)):
+        used = mem_status.ullTotalPhys - mem_status.ullAvailPhys
+        return used / (1024 * 1024)
+    return 0.0
+
+
+def get_used_memory_mb_linux():
+    """Get used memory on Linux via /proc/meminfo."""
+    total_kb = None
+    available_kb = None
+    with open('/proc/meminfo', 'r', encoding='utf-8') as meminfo:
+        for line in meminfo:
+            if line.startswith('MemTotal:'):
+                total_kb = int(line.split()[1])
+            elif line.startswith('MemAvailable:'):
+                available_kb = int(line.split()[1])
+            if total_kb is not None and available_kb is not None:
+                break
+
+    if total_kb is None or available_kb is None:
+        return 0.0
+    return (total_kb - available_kb) / 1024.0
+
+
+def get_used_memory_mb_darwin():
+    """Get used memory on macOS via vm_stat and sysctl."""
+    try:
+        pagesize_result = subprocess.run(
+            ['sysctl', '-n', 'hw.pagesize'],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        page_size = int(pagesize_result.stdout.strip())
+
+        vm_result = subprocess.run(
+            ['vm_stat'],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        active = inactive = wired = compressed = 0
+        for line in vm_result.stdout.splitlines():
+            value_match = re.search(r'(\d+)\.$', line.strip())
+            if not value_match:
+                continue
+            pages = int(value_match.group(1))
+            if 'Pages active' in line:
+                active = pages
+            elif 'Pages inactive' in line:
+                inactive = pages
+            elif 'Pages wired down' in line:
+                wired = pages
+            elif 'Pages occupied by compressor' in line:
+                compressed = pages
+
+        used_bytes = (active + inactive + wired + compressed) * page_size
+        return used_bytes / (1024 * 1024)
+    except Exception:
+        return 0.0
 
 
 def send_message_tcp(sock, message):
