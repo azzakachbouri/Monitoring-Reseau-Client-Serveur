@@ -23,8 +23,9 @@
 ### Prérequis
 
 - Python 3.8+
-- **Zéro dépendance externe** (standard library uniquement)
+- Coeur TP: standard library uniquement
   - `socket`, `threading`, `time`, `datetime`, `csv`, `uuid`, `platform`, `subprocess`, `ctypes`
+- Extension web optionnelle: Flask (`pip install -r requirements.txt`)
 
 ### Démarrage du serveur
 
@@ -33,6 +34,20 @@ python server.py
 ```
 
 Le serveur démarre sur `127.0.0.1:5051` (TCP + UDP).
+
+### Dashboard web (extension optionnelle)
+
+```bash
+python flask_api.py
+```
+
+Accès dashboard: `http://127.0.0.1:8000`
+
+Mode API seule (sans démarrer le serveur monitoring dans le meme process):
+
+```bash
+python flask_api.py --no-monitor
+```
 
 ### Démarrage d'un ou plusieurs agents
 
