@@ -1,189 +1,273 @@
 # 🖥️ Mini-Projet Réseaux TP RT2 — Monitoring Réseau Client–Serveur
 
-> Système de monitoring réseau distribué basé sur une architecture client–serveur TCP.  
-> Chaque agent collecte périodiquement des métriques (CPU, RAM) et les envoie au serveur central.
-> Le serveur agrège les données, maintient la liste des agents actifs et affiche des statistiques.
+> Système de monitoring réseau distribué basé sur une architecture client–serveur TCP/UDP.  
+> Chaque agent collecte périodiquement des métriques (CPU, RAM) et les envoie au serveur central.  
+> Le serveur agrège les données, maintient la liste des agents actifs et affiche des statistiques.  
+> Un dashboard web (extension) permet de visualiser les métriques en temps réel.
 
 ---
 
 ## 📋 Table des matières
 
-- [1. Environnement et exécution](#1-environnement-et-exécution)
-- [2. Fonctionnalités obligatoires](#2-fonctionnalités-obligatoires)
-- [3. Extensions implémentées](#3-extensions-implémentées)
-- [4. Spécification du protocole](#4-spécification-du-protocole)
-- [5. Tests](#5-tests)
-- [6. Choix techniques](#6-choix-techniques)
-- [7. Structure du projet](#7-structure-du-projet)
+- [1. Prérequis et installation](#1-prérequis-et-installation)
+- [2. Lancer le projet](#2-lancer-le-projet)
+- [3. Fonctionnalités obligatoires](#3-fonctionnalités-obligatoires)
+- [4. Extensions implémentées](#4-extensions-implémentées)
+- [5. Spécification du protocole](#5-spécification-du-protocole)
+- [6. Tests](#6-tests)
+- [7. Choix techniques](#7-choix-techniques)
+- [8. Structure du projet](#8-structure-du-projet)
+- [9. Conformité au cahier des charges](#9-conformité-au-cahier-des-charges)
+- [10. Auteurs](#10-auteurs)
 
 ---
 
-## 1. Environnement et exécution
+## 1. Prérequis et installation
 
 ### Prérequis
 
 - Python 3.8+
-- Coeur TP: standard library uniquement
-  - `socket`, `threading`, `time`, `datetime`, `csv`, `uuid`, `platform`, `subprocess`, `ctypes`
-- Extension web optionnelle: Flask (`pip install -r requirements.txt`)
 
-### Démarrage du serveur
+### Dépendances
+
+Le cœur du projet (serveur + clients + tests) utilise **uniquement la bibliothèque standard** Python — aucun `pip install` requis pour le fonctionnement de base.
+
+Le dashboard web (extension optionnelle) nécessite Flask :
+
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux / macOS
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+---
+
+## 2. Lancer le projet
+
+### 2.1 Serveur principal
 
 ```bash
 python server.py
 ```
 
-Le serveur démarre sur `127.0.0.1:5051` (TCP + UDP).
+Le serveur démarre sur `127.0.0.1:5051` en mode TCP + UDP.
 
-### Dashboard web (extension optionnelle)
+Configuration par défaut :
+
+| Paramètre             | Valeur      | Description                |
+| --------------------- | ----------- | -------------------------- |
+| `HOST`                | `127.0.0.1` | Adresse d'écoute           |
+| `PORT`                | `5051`      | Port TCP + UDP             |
+| `STATS_INTERVAL`      | `10s`       | Intervalle statistiques    |
+| `ACTIVE_WINDOW`       | `30s`       | Fenêtre d'activité (3 × T) |
+| `CPU_ALERT_THRESHOLD` | `85.0%`     | Seuil alerte CPU           |
+
+### 2.2 Dashboard web (extension optionnelle)
+
+Dans un second terminal, après avoir activé le venv :
 
 ```bash
 python flask_api.py
 ```
 
-Accès dashboard: `http://127.0.0.1:8000`
+Accès : `http://127.0.0.1:8000`
 
-Mode API seule (sans démarrer le serveur monitoring dans le meme process):
+> ⚠️ Le serveur `server.py` doit être démarré **avant** `flask_api.py`.
 
-```bash
-python flask_api.py --no-monitor
-```
-
-### Démarrage d'un ou plusieurs agents
-
-Terminal 1:
+### 2.3 Démarrer un agent
 
 ```bash
 python client.py
 ```
 
-L'agent demandera interactivement: protocol (TCP/UDP), agent_id, mode attaque.
+L'agent demande interactivement :
 
-Alternativement, utiliser le client simple (simulation de métriques):
+- `agent_id` (UUID auto-généré proposé par défaut)
+- Protocole : `TCP` (défaut) ou `UDP`
+- Mode attaque (burst massif de REPORT) : `y/N`
+
+Ou utiliser le client simplifié avec métriques simulées (aléatoires) :
 
 ```bash
 python client_simple.py
 ```
 
-### Exemple d'une séquence complète
+### 2.4 Exemple de séquence complète
 
-**Terminal 1 (serveur):**
+**Terminal 1 — Serveur :**
 
 ```bash
 python server.py
 ```
 
-**Terminal 2 (agent 1):**
+**Terminal 2 — Dashboard :**
+
+```bash
+python flask_api.py
+```
+
+**Terminal 3 — Agent 1 :**
 
 ```bash
 python client.py
 # → Enter agent ID: agent1
-# → Protocol TCP or UDP? (default: TCP): TCP
-# → Enable attack simulation (y/N): N
+# → Protocol TCP or UDP? TCP
+# → Enable attack simulation? N
 ```
 
-**Terminal 3 (agent 2):**
+**Terminal 4 — Agent 2 :**
 
 ```bash
 python client_simple.py
 ```
 
+Ouvrir `http://127.0.0.1:8000` pour voir les métriques en temps réel.
+
 ---
 
-## 2. Fonctionnalités obligatoires (cahier des charges)
+## 3. Fonctionnalités obligatoires
 
 ### Architecture
 
-- ✅ Communication **TCP** (primaire) + UDP (extension)
-- ✅ Protocole simple HELLO / REPORT / BYE
-- ✅ Gestion **plusieurs connexions simultanées** via threads
-- ✅ Un thread par client TCP au serveur
-- ✅ **Robustesse**: serveur ne s'arrête pas en cas d'erreur client
-- ✅ **Validation** des messages (format, plage de valeurs)
+- ✅ Communication **TCP** (primaire)
+- ✅ Protocole `HELLO` / `REPORT` / `BYE`
+- ✅ Gestion de **plusieurs connexions simultanées** via threads
+- ✅ Un thread par client TCP côté serveur
+- ✅ **Robustesse** : le serveur ne s'arrête jamais en cas d'erreur client
+- ✅ **Validation stricte** des messages (format, plages de valeurs)
 
-### Statistiques périodiques (tous les 10s)
+### Statistiques périodiques (toutes les 10s)
 
-Le serveur affiche:
+Le serveur affiche en console :
 
 - Nombre d'agents actifs
 - Moyenne CPU (%)
 - Moyenne RAM (MB)
-- Total de REPORT reçus
+- Total de `REPORT` reçus
+- Alertes récentes
 
-### Activation d'un agent
+### Règle d'activité d'un agent
 
-- Un agent est considéré **actif** si un REPORT est reçu dans la fenêtre **3 × T** secondes (défaut: T=10s → fenêtre=30s)
-- Après 30s sans REPORT, l'agent est automatiquement supprimé de la liste active
+Un agent est considéré **actif** si un `REPORT` est reçu dans une fenêtre de **3 × T secondes** (T = 10s → fenêtre = 30s).  
+Passé ce délai sans rapport, l'agent est automatiquement supprimé de la liste active.
 
 ---
 
-## 3. Extensions implémentées
+## 4. Extensions implémentées
 
-### A. Mode UDP (section 3 du cahier)
+### A. Mode UDP
 
-- Clients TCP et UDP gérés **simultanément** par le même serveur
-- Protocole identique (HELLO, REPORT, BYE)
-- Stateless pour UDP: pas de persistance de connexion
-- Comparison TCP vs UDP: fiabilité vs latence
+- Clients TCP et UDP gérés **simultanément** par le même serveur sur le même port
+- Protocole identique : `HELLO`, `REPORT`, `BYE`
+- UDP est sans état (stateless) côté serveur : pas de persistance de connexion
+- Permet la comparaison TCP vs UDP : fiabilité vs latence
 
-### B. Auto-cleanup des agents inactifs (section 3)
+### B. Auto-cleanup des agents inactifs
 
-- Daemon thread `inactive_cleanup_thread()` parcourt les agents toutes les 5s
-- Supprime automatiquement agents avec `(now - last_report_time) >= 30s`
-- Logs pour chaque suppression
+- Thread daemon `inactive_cleanup_thread()` parcourt les agents toutes les **5s**
+- Supprime automatiquement tout agent avec `(now - last_report_time) >= 30s`
+- Log de chaque suppression en console
 
-### C. Export CSV des statistiques (section 3)
+### C. Export CSV des statistiques
 
-- Fichier `stats_export.csv` créé automatiquement
-- Colonnes: `timestamp, active_agents, avg_cpu_pct, avg_ram_mb, total_reports`
-- Ajout d'une ligne toutes les 10s
-- Format compatible Excel/Pandas
+- Fichier `stats_export.csv` créé et mis à jour automatiquement
+- Colonnes : `timestamp, active_agents, avg_cpu_pct, avg_ram_mb, total_reports`
+- Une ligne ajoutée toutes les **10s**
+- Format compatible Excel / Pandas
 
-### D. UUID optionnel comme agent_id (section 3)
+### D. UUID comme agent_id
 
-- Clients peuvent fournir UUID au lieu d'ID manuel
-- Génération auto-UUID dans `client.py` si l'utilisateur laisse vide
-- Pas de contrainte de format sur agent_id (sauf pas d'espaces)
+- Les agents peuvent fournir un UUID au lieu d'un identifiant manuel
+- `client.py` génère et propose un UUID automatiquement si le champ est laissé vide
+- Aucune contrainte de format sur `agent_id` (sauf : pas d'espaces)
 
-### E. Simulation d'attaque (section 3)
+### E. Simulation d'attaque
 
-- Mode "attack" dans `client.py`: envoi massif de REPORT (ex.: 100+ par seconde)
-- Mesure capacité serveur + validation anti-flood
-- Utile pour tester robustesse
+- Mode "attack" dans `client.py` : envoi massif de `REPORT` en rafale
+- Paramétrable : nombre de messages (défaut : 100)
+- Permet de mesurer la capacité du serveur et de tester sa robustesse face à un flood
 
 ### F. Système d'alertes
 
-- Alerte `CPU_HIGH` si `cpu_pct` dépasse le seuil configuré (`CPU_ALERT_THRESHOLD`, défaut: 85.0)
-- Alerte `AGENT_INACTIVE` lorsqu'un agent est supprimé pour inactivité prolongée
-- Alerte `ERROR_STORM` si trop de réponses `ERROR` sont produites dans une fenêtre courte
-- Les alertes sont journalisées en temps réel et affichées dans le bloc de statistiques périodiques
+Trois types d'alertes générées automatiquement par le serveur :
 
-Paramètres serveur (dans `server.py`):
+| Type             | Déclencheur                                            |
+| ---------------- | ------------------------------------------------------ |
+| `CPU_HIGH`       | `cpu_pct` dépasse `CPU_ALERT_THRESHOLD` (défaut : 85%) |
+| `AGENT_INACTIVE` | Un agent est supprimé pour inactivité prolongée        |
+| `ERROR_STORM`    | Trop de réponses `ERROR` dans une fenêtre courte       |
 
-- `CPU_ALERT_THRESHOLD` (défaut: 85.0)
-- `ERROR_ALERT_THRESHOLD` (défaut: 5)
-- `ERROR_ALERT_WINDOW` en secondes (défaut: 10)
-- `ERROR_ALERT_COOLDOWN` en secondes (défaut: 10)
+Les alertes sont :
 
-### G. Agent health metadata (extension fidèle au TP)
+- Affichées en temps réel dans la console serveur
+- Incluses dans le bloc de statistiques périodiques
+- Exposées via l'API REST du dashboard (`/api/alerts`)
 
-- Nouveau message **optionnel**: `HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>`
-- Objectif: enrichir l'observabilité sans modifier les messages obligatoires (`HELLO`, `REPORT`, `BYE`)
-- Le serveur reste compatible avec le cahier des charges: activité calculée sur `REPORT` uniquement
-- Si un serveur ne supporte pas `HEALTH`, le client continue automatiquement en mode protocole de base
+Paramètres configurables dans `server.py` :
+
+```python
+CPU_ALERT_THRESHOLD  = 85.0   # % CPU
+ERROR_ALERT_THRESHOLD = 5     # nombre d'erreurs
+ERROR_ALERT_WINDOW   = 10     # secondes
+ERROR_ALERT_COOLDOWN = 10     # secondes entre deux alertes ERROR_STORM
+```
+
+### G. Agent health metadata
+
+Nouveau message optionnel `HEALTH` pour enrichir l'observabilité sans modifier le protocole de base :
+
+```
+HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>
+```
+
+Exemple :
+
+```
+HEALTH agent1 1700000001 DEGRADED 120.5 2
+```
+
+- Le serveur reste **100% compatible** avec le cahier des charges : l'activité est calculée sur `REPORT` uniquement
+- Si un serveur ne supporte pas `HEALTH`, le client continue en mode protocole de base
+- Statuts valides : `OK`, `DEGRADED`, `CRITICAL`
+
+### H. Web Dashboard (Flask + Chart.js)
+
+Interface web temps réel accessible sur `http://127.0.0.1:8000` :
+
+- **Tableau** des agents actifs : `agent_id`, hostname, protocole, CPU, RAM, statut health
+- **Graphique CPU** : évolution de la moyenne CPU au fil du temps
+- **Graphique RAM** : évolution de la moyenne RAM au fil du temps
+- **Compteur** d'agents actifs mis à jour en temps réel
+- **Panneau alertes** : affichage des alertes `CPU_HIGH`, `AGENT_INACTIVE`, `ERROR_STORM`
+- Rafraîchissement automatique toutes les **3 secondes** (polling)
+
+Endpoints REST exposés par `flask_api.py` :
+
+| Endpoint      | Méthode | Description                         |
+| ------------- | ------- | ----------------------------------- |
+| `/`           | GET     | Page dashboard HTML                 |
+| `/api/agents` | GET     | Liste des agents actifs + métriques |
+| `/api/stats`  | GET     | Moyenne CPU, RAM, total reports     |
+| `/api/alerts` | GET     | 20 dernières alertes                |
 
 ---
 
-## 4. Spécification du protocole
+## 5. Spécification du protocole
 
 ### Messages Client → Serveur
 
-| Message | Format                                                            | Exemple                                     |
-| ------- | ----------------------------------------------------------------- | ------------------------------------------- |
-| HELLO   | `HELLO <agent_id> <hostname>`                                     | `HELLO agent1 PC-LAB`                       |
-| REPORT  | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>`                | `REPORT agent1 1700000000 25.5 2048`        |
-| HEALTH  | `HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>` | `HEALTH agent1 1700000001 DEGRADED 120.5 2` |
-| BYE     | `BYE <agent_id>`                                                  | `BYE agent1`                                |
+| Message  | Format                                                            | Exemple                                     |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------- |
+| `HELLO`  | `HELLO <agent_id> <hostname>`                                     | `HELLO agent1 PC-LAB`                       |
+| `REPORT` | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>`                | `REPORT agent1 1700000000 25.5 2048`        |
+| `HEALTH` | `HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>` | `HEALTH agent1 1700000001 DEGRADED 120.5 2` |
+| `BYE`    | `BYE <agent_id>`                                                  | `BYE agent1`                                |
 
 ### Réponses Serveur → Client
 
@@ -194,23 +278,45 @@ Paramètres serveur (dans `server.py`):
 
 ### Contraintes de validation
 
-- **agent_id**: pas d'espaces (alphanumérique + `-`, `_`, UUID OK)
-- **cpu_pct**: réel dans `[0.0, 100.0]`
-- **ram_mb**: réel ≥ `0.0`
-- **timestamp**: entier (epoch secondes)
-- **status** (HEALTH): `OK`, `DEGRADED` ou `CRITICAL`
-- **uptime_s** (HEALTH): réel ≥ `0.0`
-- **error_count** (HEALTH): entier ≥ `0`
+| Champ         | Contrainte                                            |
+| ------------- | ----------------------------------------------------- |
+| `agent_id`    | Sans espaces (alphanumérique, `-`, `_`, UUID accepté) |
+| `cpu_pct`     | Réel dans `[0.0, 100.0]`                              |
+| `ram_mb`      | Réel ≥ `0.0`                                          |
+| `timestamp`   | Entier (epoch secondes)                               |
+| `status`      | `OK`, `DEGRADED` ou `CRITICAL` uniquement             |
+| `uptime_s`    | Réel ≥ `0.0`                                          |
+| `error_count` | Entier ≥ `0`                                          |
+
+### Exemple d'échange complet
+
+```
+Client  →  HELLO agent1 PC-LAB
+Serveur →  OK
+
+Client  →  REPORT agent1 1700000000 25.5 2048
+Serveur →  OK
+
+Client  →  HEALTH agent1 1700000001 OK 3600.0 0
+Serveur →  OK
+
+Client  →  BYE agent1
+Serveur →  OK
+```
 
 ---
 
-## 5. Tests
+## 6. Tests
 
-### Tests obligatoires (cahier des charges)
+### Lancer les tests
 
 ```bash
 python test_suite.py
 ```
+
+> ⚠️ Le serveur `server.py` doit être démarré avant de lancer les tests.
+
+### Tests obligatoires
 
 | #   | Test                 | Description                            | Statut |
 | --- | -------------------- | -------------------------------------- | ------ |
@@ -219,182 +325,121 @@ python test_suite.py
 | 3   | Malformed Messages   | HELLO incomplet, REPORT invalide, etc. | ✅     |
 | 4   | Unregistered Agent   | REPORT sans HELLO préalable            | ✅     |
 | 5   | Metric Validation    | CPU > 100, RAM < 0, etc.               | ✅     |
-| 6   | Disconnect/Reconnect | Même agent_id, reconnexion             | ✅     |
+| 6   | Disconnect/Reconnect | Même `agent_id`, reconnexion           | ✅     |
 
-### Tests d'extensions (bonus)
+### Tests d'extensions
 
-| #   | Test                  | Description                      | Statut |
-| --- | --------------------- | -------------------------------- | ------ |
-| 7   | UDP Flow              | HELLO/REPORT/BYE en UDP          | ✅     |
-| 8   | UUID Agent ID         | UUID comme agent_id              | ✅     |
-| 9   | Abrupt Disconnect     | Close sans BYE (server timeout)  | ✅     |
-| 10  | Average Calculation   | Vérification moyennes correctes  | ✅     |
-| 11  | Inactivity Detection  | Auto-removal après 3×T           | ✅     |
-| 12  | CPU Alert             | Déclenchement si CPU > seuil     | ✅     |
-| 13  | Inactive Alert        | Alerte lors suppression inactive | ✅     |
-| 14  | Error Storm Alert     | Trop de réponses ERROR           | ✅     |
-| 15  | Health Metadata Valid | HEALTH accepté et stocké         | ✅     |
-| 16  | Health Malformed      | HEALTH mal formé rejeté          | ✅     |
-| 17  | Health Unregistered   | HEALTH agent inconnu rejeté      | ✅     |
+| #   | Test                  | Description                       | Statut |
+| --- | --------------------- | --------------------------------- | ------ |
+| 7   | UDP Flow              | HELLO / REPORT / BYE en UDP       | ✅     |
+| 8   | UUID Agent ID         | UUID comme `agent_id`             | ✅     |
+| 9   | Abrupt Disconnect     | Fermeture sans BYE                | ✅     |
+| 10  | Average Calculation   | Vérification des moyennes CPU/RAM | ✅     |
+| 11  | Inactivity Detection  | Auto-suppression après 3×T        | ✅     |
+| 12  | CPU Alert             | Déclenchement si CPU > seuil      | ✅     |
+| 13  | Inactive Alert        | Alerte lors suppression inactive  | ✅     |
+| 14  | Error Storm Alert     | Trop de réponses ERROR            | ✅     |
+| 15  | Health Metadata Valid | HEALTH accepté et stocké          | ✅     |
+| 16  | Health Malformed      | HEALTH mal formé rejeté           | ✅     |
+| 17  | Health Unregistered   | HEALTH agent inconnu rejeté       | ✅     |
+
+> Le dashboard web est testé visuellement lors de la démo (pas de tests automatisés HTTP).
 
 ---
 
-## 6. Choix techniques
+## 7. Choix techniques
 
-### Collecte de métriques (sans psutil)
+### Collecte de métriques sans bibliothèque externe
 
-Le projet respecte **"bibliothèques standards uniquement"** du cahier.
+Le projet respecte l'exigence **"bibliothèques standards uniquement"** pour le cœur du TP :
 
-- **Windows**: `ctypes.windll.kernel32.GlobalMemoryStatusEx()` + `typeperf` (RAM + CPU)
-- **Linux**: `/proc/meminfo`, `/proc/stat` (RAM + CPU)
-- **macOS**: `sysctl` + `vm_stat` (RAM + CPU)
+| OS      | CPU                         | RAM                                             |
+| ------- | --------------------------- | ----------------------------------------------- |
+| Windows | `typeperf` via `subprocess` | `ctypes.windll.kernel32.GlobalMemoryStatusEx()` |
+| Linux   | `/proc/stat`                | `/proc/meminfo`                                 |
+| macOS   | `sysctl`                    | `vm_stat`                                       |
 
-### Gestion concurrence
+### Gestion de la concurrence
 
-- **Server**: `threading.Thread` pour chaque client TCP
-- **Synchronisation**: `threading.Lock` pour accès dict `agents` et `metrics`
-- **Daemon threads**: cleanup, stats, UDP listener
+- Un `threading.Thread` par client TCP côté serveur
+- `threading.Lock` pour tout accès au dictionnaire `agents` et aux compteurs globaux
+- Threads daemon pour : cleanup inactivité, statistiques, listener UDP
 
 ### Robustesse
 
-- Serveur captures exceptions par client → ne s'arrête pas
-- Timeout inactivité (30s) → suppression auto des agents fantômes
-- Validation stricte: toute erreur message → réponse `ERROR`
+- Toute exception levée dans un thread client est capturée localement → le serveur continue
+- Timeout inactivité (30s) → suppression automatique des agents fantômes
+- Validation stricte de chaque champ → réponse `ERROR` immédiate en cas de problème
+
+### Dashboard (extension)
+
+- `flask_api.py` importe directement `agents`, `alerts`, `total_reports` depuis `server.py`
+- Aucune duplication de données : Flask lit l'état en mémoire partagée
+- Polling côté navigateur toutes les 3s via `fetch()` JavaScript natif
+- Chart.js chargé via CDN — aucun build tool requis
 
 ---
-
-## 7. Structure du projet
-
-```
-.
-├── server.py                # Serveur (TCP + UDP)
-│   ├── handle_client()      # Thread-handler pour TCP
-│   ├── udp_listener()       # Thread-daemon pour UDP
-│   ├── statistics_thread()  # Affiche stats toutes les 10s
-│   └── inactive_cleanup_thread()  # Supprime agents inactifs
-│
-├── client.py                # Client (TCP/UDP + auto-metrics)
-│   ├── get_cpu_usage_pct()  # Metrics cross-platform
-│   ├── get_used_memory_mb()
-│   └── run_attack_mode()    # Mode simulation d'attaque
-│
-├── client_simple.py         # Client simplifié (métriques aléatoires)
-│
-├── test_suite.py            # 11 tests (6 obligatoires + 5 extensions)
-│
-├── stats_export.csv         # ✨ Généré automatiquement
-├── requirements.txt         # ✅ Zéro dépendances
-└── README.md                # Ce fichier
-
-```
-
----
-
-## 8. Résumé conformité au cahier des charges
-
-✅ **Obligatoire:**
-
-- Réaliser monitoring distribué client–serveur TCP
-- Protocole HELLO/REPORT/BYE
-- Gestion threads (1 par client)
-- Validation robuste
-- Statistiques périodiques (avg CPU, RAM)
-- Tests démontrés (6 obligatoires)
-- Zero external dependencies
-
-✅ **Extensions implémentées:**
-
-- UDP mode
-- Inactivité detection + auto-cleanup
-- CSV export
-- UUID support
-- Attack simulation
-
----
-
-## Auteurs
-
-**AZZA KACHBOURI** — **DHIA SELMI**  
-Mini-Projet Réseaux — TP RT2
-
-- actif si REPORT recu dans la fenetre 3 x T
-
-## 5. Prerequis
-
-- Python 3.8+
-- Bibliotheques standards uniquement (aucun pip install necessaire)
-
-## 6. Lancer le projet
-
-### 6.1 Demarrer le serveur
-
-```bash
-python server.py
-```
-
-Configuration par defaut:
-
-- HOST = 127.0.0.1
-- PORT = 5051
-- STATS_INTERVAL = 10s
-- ACTIVE_WINDOW = 30s (3 x T)
-
-### 6.2 Demarrer un client
-
-```bash
-python client.py
-```
-
-Le client vous demandera:
-
-- agent_id (UUID auto propose par defaut)
-- protocole (TCP par defaut, UDP possible)
-- activation du mode attaque (burst de REPORT)
-
-## 7. Tests
-
-Lancer la suite de tests:
-
-```bash
-python test_suite.py
-```
-
-La suite couvre:
-
-- connexion d'un seul client
-- connexions multiples simultanees
-- message mal forme
-- arret brutal d'un client
-- calcul/validation des metriques
-- inactivite d'un agent (> 3 x T)
-- extensions (UDP, UUID)
 
 ## 8. Structure du projet
 
-```text
+```
 .
-|- server.py
-|- client.py
-|- client_simple.py
-|- test_suite.py
-|- run_demo.bat
-|- stats_export.csv
-|- requirements.txt
-|- README.md
+├── server.py              # Serveur TCP + UDP (cœur du projet)
+│   ├── handle_client()        # Thread-handler par client TCP
+│   ├── udp_listener()         # Thread daemon UDP
+│   ├── statistics_thread()    # Statistiques toutes les 10s
+│   └── inactive_cleanup_thread()  # Suppression agents inactifs
+│
+├── client.py              # Agent complet (métriques réelles + HEALTH)
+│   ├── get_cpu_usage_pct()    # Cross-platform sans psutil
+│   ├── get_used_memory_mb()
+│   └── run_attack_mode()      # Simulation d'attaque
+│
+├── client_simple.py       # Agent simplifié (métriques aléatoires)
+│
+├── flask_api.py           # Dashboard web (extension Flask)
+│
+├── templates/
+│   └── dashboard.html     # Interface Chart.js (polling toutes les 3s)
+│
+├── test_suite.py          # 17 tests (6 obligatoires + 11 extensions)
+│
+├── stats_export.csv       # Généré automatiquement par server.py
+├── requirements.txt       # flask>=2.0
+├── run_demo.bat           # Lancement rapide Windows
+└── README.md              # Ce fichier
 ```
 
-## 9. Livrables (rappel)
+---
 
-- Code source complet (client + serveur)
-- Rapport (5 a 10 pages):
-  - architecture
-  - protocole
-  - choix techniques
-  - captures d'ecran
-  - difficultes rencontrees
-- Rapport des tests (3 a 4 pages)
-- README d'execution
+## 9. Conformité au cahier des charges
 
-## Auteurs
+### Obligatoire ✅
 
-Azza Kachbouri - Dhia Selmi
+- Monitoring distribué client–serveur TCP
+- Protocole `HELLO` / `REPORT` / `BYE`
+- Gestion des threads (1 par client TCP)
+- Validation robuste des entrées
+- Statistiques périodiques (avg CPU, avg RAM, agents actifs)
+- 6 tests obligatoires démontrés
+- Bibliothèques standards uniquement (cœur du projet)
+
+### Extensions ✅
+
+| Extension       | Description                                              |
+| --------------- | -------------------------------------------------------- |
+| UDP             | Protocole identique sur UDP, même port                   |
+| Inactivité      | Auto-cleanup après 3×T secondes                          |
+| CSV             | Export automatique `stats_export.csv`                    |
+| UUID            | Support identifiant UUID pour `agent_id`                 |
+| Attaque         | Mode burst de `REPORT` pour tester la robustesse         |
+| Alertes         | `CPU_HIGH`, `AGENT_INACTIVE`, `ERROR_STORM`              |
+| Health metadata | Message `HEALTH` optionnel (status, uptime, error_count) |
+| Web dashboard   | Flask API + Chart.js, temps réel sur port 8000           |
+
+---
+
+## 10. Auteurs
+
+**AZZA KACHBOURI** — **DHIA SELMI**  
+Mini-Projet Réseaux — TP RT2
