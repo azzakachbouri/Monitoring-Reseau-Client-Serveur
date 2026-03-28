@@ -136,6 +136,20 @@ Le serveur affiche:
 - Mesure capacité serveur + validation anti-flood
 - Utile pour tester robustesse
 
+### F. Système d'alertes
+
+- Alerte `CPU_HIGH` si `cpu_pct` dépasse le seuil configuré (`CPU_ALERT_THRESHOLD`, défaut: 85.0)
+- Alerte `AGENT_INACTIVE` lorsqu'un agent est supprimé pour inactivité prolongée
+- Alerte `ERROR_STORM` si trop de réponses `ERROR` sont produites dans une fenêtre courte
+- Les alertes sont journalisées en temps réel et affichées dans le bloc de statistiques périodiques
+
+Paramètres serveur (dans `server.py`):
+
+- `CPU_ALERT_THRESHOLD` (défaut: 85.0)
+- `ERROR_ALERT_THRESHOLD` (défaut: 5)
+- `ERROR_ALERT_WINDOW` en secondes (défaut: 10)
+- `ERROR_ALERT_COOLDOWN` en secondes (défaut: 10)
+
 ---
 
 ## 4. Spécification du protocole
@@ -183,13 +197,16 @@ python test_suite.py
 
 ### Tests d'extensions (bonus)
 
-| #   | Test                 | Description                     | Statut |
-| --- | -------------------- | ------------------------------- | ------ |
-| 7   | UDP Flow             | HELLO/REPORT/BYE en UDP         | ✅     |
-| 8   | UUID Agent ID        | UUID comme agent_id             | ✅     |
-| 9   | Abrupt Disconnect    | Close sans BYE (server timeout) | ✅     |
-| 10  | Average Calculation  | Vérification moyennes correctes | ✅     |
-| 11  | Inactivity Detection | Auto-removal après 3×T          | ✅     |
+| #   | Test                 | Description                      | Statut |
+| --- | -------------------- | -------------------------------- | ------ |
+| 7   | UDP Flow             | HELLO/REPORT/BYE en UDP          | ✅     |
+| 8   | UUID Agent ID        | UUID comme agent_id              | ✅     |
+| 9   | Abrupt Disconnect    | Close sans BYE (server timeout)  | ✅     |
+| 10  | Average Calculation  | Vérification moyennes correctes  | ✅     |
+| 11  | Inactivity Detection | Auto-removal après 3×T           | ✅     |
+| 12  | CPU Alert            | Déclenchement si CPU > seuil     | ✅     |
+| 13  | Inactive Alert       | Alerte lors suppression inactive | ✅     |
+| 14  | Error Storm Alert    | Trop de réponses ERROR           | ✅     |
 
 ---
 

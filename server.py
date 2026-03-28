@@ -10,12 +10,102 @@ PORT = 5051
 ACTIVE_WINDOW = 30  # 3 × T seconds (T = 10s, so 30s window for active agents)
 STATS_INTERVAL = 10
 CSV_FILE = 'stats_export.csv'
+CPU_ALERT_THRESHOLD = 85.0
+ERROR_ALERT_THRESHOLD = 5
+ERROR_ALERT_WINDOW = 10
+ERROR_ALERT_COOLDOWN = 10
 
 # Global state
 agents_lock = threading.Lock()
 agents = {}  # agent_id -> {hostname, last_report_time, cpu_pct, ram_mb, protocol, addr}
 metrics_lock = threading.Lock()
 total_reports = 0
+error_timestamps = []
+last_error_alert_time = 0.0
+alerts_lock = threading.Lock()
+alerts = []  # list of {timestamp, type, agent_id, message}
+
+
+def record_alert(alert_type, message, agent_id=None):
+    """Store and print an alert event."""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    payload = {
+        'timestamp': timestamp,
+        'type': alert_type,
+        'agent_id': agent_id,
+        'message': message,
+    }
+    with alerts_lock:
+        alerts.append(payload)
+
+    if agent_id:
+        print(f"[ALERT][{alert_type}] {timestamp} | agent={agent_id} | {message}")
+    else:
+        print(f"[ALERT][{alert_type}] {timestamp} | {message}")
+
+
+def get_recent_alerts(limit=20):
+    """Return a snapshot of the most recent alert events."""
+    with alerts_lock:
+        return list(alerts[-limit:])
+
+
+def reset_state_for_tests():
+    """Reset mutable globals to support deterministic tests."""
+    global total_reports, last_error_alert_time
+    with agents_lock:
+        agents.clear()
+    with metrics_lock:
+        total_reports = 0
+        error_timestamps.clear()
+        last_error_alert_time = 0.0
+    with alerts_lock:
+        alerts.clear()
+
+
+def register_error_response():
+    """Track ERROR responses and alert if too many occur in a short window."""
+    global last_error_alert_time
+    now = time.time()
+    should_alert = False
+
+    with metrics_lock:
+        error_timestamps.append(now)
+        while error_timestamps and (now - error_timestamps[0]) > ERROR_ALERT_WINDOW:
+            error_timestamps.pop(0)
+
+        if len(error_timestamps) >= ERROR_ALERT_THRESHOLD and (now - last_error_alert_time) >= ERROR_ALERT_COOLDOWN:
+            last_error_alert_time = now
+            should_alert = True
+
+    if should_alert:
+        record_alert(
+            'ERROR_STORM',
+            f"Too many ERROR responses: {len(error_timestamps)} in the last {ERROR_ALERT_WINDOW}s",
+        )
+
+
+def check_inactive_agents_once(now=None):
+    """Remove inactive agents one time and emit inactivity alerts."""
+    if now is None:
+        now = time.time()
+
+    removed_agents = []
+    with agents_lock:
+        for agent_id, info in list(agents.items()):
+            if (now - info['last_report_time']) >= ACTIVE_WINDOW:
+                removed_agents.append((agent_id, info['hostname']))
+                del agents[agent_id]
+
+    for agent_id, hostname in removed_agents:
+        record_alert(
+            'AGENT_INACTIVE',
+            f"Agent inactive too long and removed: {hostname}",
+            agent_id=agent_id,
+        )
+        print(f"[CLEANUP] Agent inactive removed: {agent_id} ({hostname})")
+
+    return removed_agents
 
 
 def write_csv_row(timestamp, num_active, avg_cpu, avg_ram):
@@ -46,6 +136,7 @@ def process_message(message, addr, protocol='TCP'):
 
     message = message.strip()
     if not message:
+        register_error_response()
         return 'ERROR', False
 
     print(f"[{protocol} {addr}] Received: {message}")
@@ -54,6 +145,7 @@ def process_message(message, addr, protocol='TCP'):
     if message.startswith('HELLO'):
         if len(tokens) < 3:
             print(f"[{protocol} {addr}] ERROR: Malformed HELLO message")
+            register_error_response()
             return 'ERROR', False
 
         agent_id = tokens[1]
@@ -66,7 +158,8 @@ def process_message(message, addr, protocol='TCP'):
                 'cpu_pct': 0.0,
                 'ram_mb': 0.0,
                 'protocol': protocol,
-                'addr': str(addr)
+                'addr': str(addr),
+                'cpu_alert_active': False,
             }
 
         print(f"[{protocol} {addr}] Agent registered: {agent_id} ({hostname})")
@@ -75,6 +168,7 @@ def process_message(message, addr, protocol='TCP'):
     if message.startswith('REPORT'):
         if len(tokens) < 5:
             print(f"[{protocol} {addr}] ERROR: Malformed REPORT message")
+            register_error_response()
             return 'ERROR', False
 
         try:
@@ -85,17 +179,31 @@ def process_message(message, addr, protocol='TCP'):
 
             if not validate_report(cpu_pct, ram_mb):
                 print(f"[{protocol} {addr}] ERROR: Invalid metric values")
+                register_error_response()
                 return 'ERROR', False
 
             with agents_lock:
                 if agent_id in agents:
+                    was_above_threshold = agents[agent_id].get('cpu_alert_active', False)
                     agents[agent_id]['last_report_time'] = time.time()
                     agents[agent_id]['cpu_pct'] = cpu_pct
                     agents[agent_id]['ram_mb'] = ram_mb
                     agents[agent_id]['protocol'] = protocol
                     agents[agent_id]['addr'] = str(addr)
+
+                    is_above_threshold = cpu_pct > CPU_ALERT_THRESHOLD
+                    if is_above_threshold and not was_above_threshold:
+                        agents[agent_id]['cpu_alert_active'] = True
+                        record_alert(
+                            'CPU_HIGH',
+                            f"CPU above threshold: {cpu_pct:.1f}% > {CPU_ALERT_THRESHOLD:.1f}%",
+                            agent_id=agent_id,
+                        )
+                    elif not is_above_threshold and was_above_threshold:
+                        agents[agent_id]['cpu_alert_active'] = False
                 else:
                     print(f"[{protocol} {addr}] WARNING: Report from unregistered agent {agent_id}")
+                    register_error_response()
                     return 'ERROR', False
 
             with metrics_lock:
@@ -106,11 +214,13 @@ def process_message(message, addr, protocol='TCP'):
 
         except ValueError:
             print(f"[{protocol} {addr}] ERROR: Invalid metric format")
+            register_error_response()
             return 'ERROR', False
 
     if message.startswith('BYE'):
         if len(tokens) < 2:
             print(f"[{protocol} {addr}] ERROR: Malformed BYE message")
+            register_error_response()
             return 'ERROR', False
 
         agent_id = tokens[1]
@@ -122,6 +232,7 @@ def process_message(message, addr, protocol='TCP'):
         return 'OK', protocol == 'TCP'
 
     print(f"[{protocol} {addr}] ERROR: Unknown command")
+    register_error_response()
     return 'ERROR', False
 
 
@@ -175,17 +286,7 @@ def inactive_cleanup_thread():
     """Remove inactive agents periodically."""
     while True:
         time.sleep(5)
-        now = time.time()
-        removed_agents = []
-
-        with agents_lock:
-            for agent_id, info in list(agents.items()):
-                if (now - info['last_report_time']) >= ACTIVE_WINDOW:
-                    removed_agents.append((agent_id, info['hostname']))
-                    del agents[agent_id]
-
-        for agent_id, hostname in removed_agents:
-            print(f"[CLEANUP] Agent inactive removed: {agent_id} ({hostname})")
+        check_inactive_agents_once()
 
 
 def statistics_thread():
@@ -211,6 +312,13 @@ def statistics_thread():
         print(f"Average RAM: {avg_ram:.2f}MB")
         with metrics_lock:
             print(f"Total REPORT received: {total_reports}")
+            print(f"Recent ERROR count ({ERROR_ALERT_WINDOW}s): {len(error_timestamps)}")
+        recent_alerts = get_recent_alerts(limit=3)
+        if recent_alerts:
+            print("Recent Alerts:")
+            for alert in recent_alerts:
+                agent_label = f" [{alert['agent_id']}]" if alert['agent_id'] else ''
+                print(f"  - {alert['timestamp']} {alert['type']}{agent_label}: {alert['message']}")
         if active_agents:
             for agent_id, info in active_agents.items():
                 print(

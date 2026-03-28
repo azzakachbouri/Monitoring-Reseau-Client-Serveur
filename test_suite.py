@@ -6,6 +6,7 @@ Tests all required scenarios from project specification
 import socket
 import time
 import uuid
+import server as server_module
 
 
 class TestClient:
@@ -520,6 +521,94 @@ def test_11_agent_inactivity_detection():
     return True
 
 
+def test_12_cpu_alert_trigger():
+    """Test 12: CPU alert must trigger when threshold is exceeded."""
+    print("\n" + "="*60)
+    print("TEST 12: CPU Alert Trigger")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    response, _ = server_module.process_message("HELLO alert_cpu_1 HOST", ("127.0.0.1", 9999), protocol='TCP')
+    if response != 'OK':
+        print("❌ FAILED: HELLO rejected")
+        return False
+
+    response, _ = server_module.process_message(
+        f"REPORT alert_cpu_1 1700000000 {server_module.CPU_ALERT_THRESHOLD + 1} 1024",
+        ("127.0.0.1", 9999),
+        protocol='TCP',
+    )
+    if response != 'OK':
+        print("❌ FAILED: REPORT rejected")
+        return False
+
+    cpu_alerts = [a for a in server_module.get_recent_alerts() if a['type'] == 'CPU_HIGH' and a['agent_id'] == 'alert_cpu_1']
+    if not cpu_alerts:
+        print("❌ FAILED: CPU_HIGH alert not generated")
+        return False
+
+    print("✓ PASSED: CPU_HIGH alert generated")
+    return True
+
+
+def test_13_inactive_agent_alert_trigger():
+    """Test 13: Inactivity alert must trigger when cleanup removes an agent."""
+    print("\n" + "="*60)
+    print("TEST 13: Inactive Agent Alert")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    response, _ = server_module.process_message("HELLO alert_inactive_1 HOST", ("127.0.0.1", 9998), protocol='TCP')
+    if response != 'OK':
+        print("❌ FAILED: HELLO rejected")
+        return False
+
+    now = time.time()
+    with server_module.agents_lock:
+        server_module.agents['alert_inactive_1']['last_report_time'] = now - (server_module.ACTIVE_WINDOW + 1)
+
+    removed_agents = server_module.check_inactive_agents_once(now=now)
+    if not removed_agents:
+        print("❌ FAILED: Agent was not removed by inactivity check")
+        return False
+
+    inactive_alerts = [
+        a for a in server_module.get_recent_alerts()
+        if a['type'] == 'AGENT_INACTIVE' and a['agent_id'] == 'alert_inactive_1'
+    ]
+    if not inactive_alerts:
+        print("❌ FAILED: AGENT_INACTIVE alert not generated")
+        return False
+
+    print("✓ PASSED: AGENT_INACTIVE alert generated")
+    return True
+
+
+def test_14_error_storm_alert_trigger():
+    """Test 14: Error storm alert must trigger after many malformed messages."""
+    print("\n" + "="*60)
+    print("TEST 14: Error Storm Alert")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    for _ in range(server_module.ERROR_ALERT_THRESHOLD):
+        response, _ = server_module.process_message("INVALID bad_msg", ("127.0.0.1", 9997), protocol='TCP')
+        if response != 'ERROR':
+            print("❌ FAILED: Malformed message should return ERROR")
+            return False
+
+    error_alerts = [a for a in server_module.get_recent_alerts() if a['type'] == 'ERROR_STORM']
+    if not error_alerts:
+        print("❌ FAILED: ERROR_STORM alert not generated")
+        return False
+
+    print("✓ PASSED: ERROR_STORM alert generated")
+    return True
+
+
 def run_all_tests():
     """Run all tests."""
     print("\n\n")
@@ -543,6 +632,9 @@ def run_all_tests():
         "Test 9: Abrupt Disconnect": test_9_abrupt_disconnect(),
         "Test 10: Average Calculation": test_10_average_calculation(),
         "Test 11: Inactivity Detection": test_11_agent_inactivity_detection(),
+        "Test 12: CPU Alert": test_12_cpu_alert_trigger(),
+        "Test 13: Inactive Alert": test_13_inactive_agent_alert_trigger(),
+        "Test 14: Error Storm Alert": test_14_error_storm_alert_trigger(),
     }
     
     # Summary
