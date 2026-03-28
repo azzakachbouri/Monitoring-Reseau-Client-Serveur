@@ -150,17 +150,25 @@ Paramètres serveur (dans `server.py`):
 - `ERROR_ALERT_WINDOW` en secondes (défaut: 10)
 - `ERROR_ALERT_COOLDOWN` en secondes (défaut: 10)
 
+### G. Agent health metadata (extension fidèle au TP)
+
+- Nouveau message **optionnel**: `HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>`
+- Objectif: enrichir l'observabilité sans modifier les messages obligatoires (`HELLO`, `REPORT`, `BYE`)
+- Le serveur reste compatible avec le cahier des charges: activité calculée sur `REPORT` uniquement
+- Si un serveur ne supporte pas `HEALTH`, le client continue automatiquement en mode protocole de base
+
 ---
 
 ## 4. Spécification du protocole
 
 ### Messages Client → Serveur
 
-| Message | Format                                             | Exemple                              |
-| ------- | -------------------------------------------------- | ------------------------------------ |
-| HELLO   | `HELLO <agent_id> <hostname>`                      | `HELLO agent1 PC-LAB`                |
-| REPORT  | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>` | `REPORT agent1 1700000000 25.5 2048` |
-| BYE     | `BYE <agent_id>`                                   | `BYE agent1`                         |
+| Message | Format                                                            | Exemple                                     |
+| ------- | ----------------------------------------------------------------- | ------------------------------------------- |
+| HELLO   | `HELLO <agent_id> <hostname>`                                     | `HELLO agent1 PC-LAB`                       |
+| REPORT  | `REPORT <agent_id> <timestamp> <cpu_pct> <ram_mb>`                | `REPORT agent1 1700000000 25.5 2048`        |
+| HEALTH  | `HEALTH <agent_id> <timestamp> <status> <uptime_s> <error_count>` | `HEALTH agent1 1700000001 DEGRADED 120.5 2` |
+| BYE     | `BYE <agent_id>`                                                  | `BYE agent1`                                |
 
 ### Réponses Serveur → Client
 
@@ -175,6 +183,9 @@ Paramètres serveur (dans `server.py`):
 - **cpu_pct**: réel dans `[0.0, 100.0]`
 - **ram_mb**: réel ≥ `0.0`
 - **timestamp**: entier (epoch secondes)
+- **status** (HEALTH): `OK`, `DEGRADED` ou `CRITICAL`
+- **uptime_s** (HEALTH): réel ≥ `0.0`
+- **error_count** (HEALTH): entier ≥ `0`
 
 ---
 
@@ -197,16 +208,19 @@ python test_suite.py
 
 ### Tests d'extensions (bonus)
 
-| #   | Test                 | Description                      | Statut |
-| --- | -------------------- | -------------------------------- | ------ |
-| 7   | UDP Flow             | HELLO/REPORT/BYE en UDP          | ✅     |
-| 8   | UUID Agent ID        | UUID comme agent_id              | ✅     |
-| 9   | Abrupt Disconnect    | Close sans BYE (server timeout)  | ✅     |
-| 10  | Average Calculation  | Vérification moyennes correctes  | ✅     |
-| 11  | Inactivity Detection | Auto-removal après 3×T           | ✅     |
-| 12  | CPU Alert            | Déclenchement si CPU > seuil     | ✅     |
-| 13  | Inactive Alert       | Alerte lors suppression inactive | ✅     |
-| 14  | Error Storm Alert    | Trop de réponses ERROR           | ✅     |
+| #   | Test                  | Description                      | Statut |
+| --- | --------------------- | -------------------------------- | ------ |
+| 7   | UDP Flow              | HELLO/REPORT/BYE en UDP          | ✅     |
+| 8   | UUID Agent ID         | UUID comme agent_id              | ✅     |
+| 9   | Abrupt Disconnect     | Close sans BYE (server timeout)  | ✅     |
+| 10  | Average Calculation   | Vérification moyennes correctes  | ✅     |
+| 11  | Inactivity Detection  | Auto-removal après 3×T           | ✅     |
+| 12  | CPU Alert             | Déclenchement si CPU > seuil     | ✅     |
+| 13  | Inactive Alert        | Alerte lors suppression inactive | ✅     |
+| 14  | Error Storm Alert     | Trop de réponses ERROR           | ✅     |
+| 15  | Health Metadata Valid | HEALTH accepté et stocké         | ✅     |
+| 16  | Health Malformed      | HEALTH mal formé rejeté          | ✅     |
+| 17  | Health Unregistered   | HEALTH agent inconnu rejeté      | ✅     |
 
 ---
 

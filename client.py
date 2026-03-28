@@ -13,6 +13,7 @@ from datetime import datetime
 HOST = '127.0.0.1'
 PORT = 5051
 REPORT_INTERVAL = 10  # Send report every 10 seconds
+SEND_HEALTH_METADATA = True
 
 
 def get_system_metrics():
@@ -178,8 +179,21 @@ def send_message_udp(sock, message):
         return None
 
 
+def compute_health_status(cpu_pct, local_error_count):
+    """Classify client health from local metrics and communication errors."""
+    if cpu_pct >= 90.0 or local_error_count >= 3:
+        return 'CRITICAL'
+    if cpu_pct >= 75.0 or local_error_count >= 1:
+        return 'DEGRADED'
+    return 'OK'
+
+
 def report_thread(sock, agent_id, protocol='TCP'):
     """Periodically send REPORT messages."""
+    start_time = time.time()
+    local_error_count = 0
+    health_enabled = SEND_HEALTH_METADATA
+
     while True:
         try:
             time.sleep(REPORT_INTERVAL)
@@ -196,7 +210,33 @@ def report_thread(sock, agent_id, protocol='TCP'):
             if response == 'OK':
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Report sent: CPU={cpu_pct:.1f}% RAM={ram_mb:.0f}MB")
             else:
+                local_error_count += 1
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Report rejected: {response}")
+
+            if health_enabled:
+                uptime_s = time.time() - start_time
+                status = compute_health_status(cpu_pct, local_error_count)
+                health_msg = f"HEALTH {agent_id} {timestamp} {status} {uptime_s:.1f} {local_error_count}"
+
+                if protocol == 'UDP':
+                    health_response = send_message_udp(sock, health_msg)
+                else:
+                    health_response = send_message_tcp(sock, health_msg)
+
+                if health_response == 'OK':
+                    print(
+                        f"[{datetime.now().strftime('%H:%M:%S')}] "
+                        f"Health sent: status={status} uptime={uptime_s:.0f}s errors={local_error_count}"
+                    )
+                elif health_response == 'ERROR':
+                    # Keep base TP protocol running if server does not implement HEALTH.
+                    health_enabled = False
+                    print(
+                        f"[{datetime.now().strftime('%H:%M:%S')}] "
+                        "Server rejected HEALTH extension; continuing with HELLO/REPORT/BYE only"
+                    )
+                else:
+                    local_error_count += 1
         
         except Exception as e:
             print(f"Error in report thread: {e}")

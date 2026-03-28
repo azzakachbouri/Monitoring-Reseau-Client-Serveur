@@ -609,6 +609,97 @@ def test_14_error_storm_alert_trigger():
     return True
 
 
+def test_15_health_metadata_valid():
+    """Test 15: HEALTH metadata should be accepted and stored for registered agent."""
+    print("\n" + "="*60)
+    print("TEST 15: HEALTH Metadata Valid")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    response, _ = server_module.process_message("HELLO health_agent_1 HOST", ("127.0.0.1", 9996), protocol='TCP')
+    if response != 'OK':
+        print("❌ FAILED: HELLO rejected")
+        return False
+
+    response, _ = server_module.process_message(
+        "HEALTH health_agent_1 1700000000 DEGRADED 120.5 2",
+        ("127.0.0.1", 9996),
+        protocol='TCP',
+    )
+    if response != 'OK':
+        print("❌ FAILED: HEALTH rejected")
+        return False
+
+    with server_module.agents_lock:
+        health_data = server_module.agents['health_agent_1'].get('health', {})
+
+    if health_data.get('status') != 'DEGRADED':
+        print("❌ FAILED: HEALTH status was not stored correctly")
+        return False
+
+    if int(health_data.get('error_count', -1)) != 2:
+        print("❌ FAILED: HEALTH error_count was not stored correctly")
+        return False
+
+    print("✓ PASSED: HEALTH metadata accepted and stored")
+    return True
+
+
+def test_16_health_metadata_malformed():
+    """Test 16: Malformed HEALTH messages should be rejected."""
+    print("\n" + "="*60)
+    print("TEST 16: HEALTH Metadata Malformed")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    response, _ = server_module.process_message("HELLO health_agent_2 HOST", ("127.0.0.1", 9995), protocol='TCP')
+    if response != 'OK':
+        print("❌ FAILED: HELLO rejected")
+        return False
+
+    # Missing fields
+    response, _ = server_module.process_message("HEALTH health_agent_2 1700000000", ("127.0.0.1", 9995), protocol='TCP')
+    if response != 'ERROR':
+        print("❌ FAILED: Incomplete HEALTH should return ERROR")
+        return False
+
+    # Invalid status
+    response, _ = server_module.process_message(
+        "HEALTH health_agent_2 1700000001 UNKNOWN 10 0",
+        ("127.0.0.1", 9995),
+        protocol='TCP',
+    )
+    if response != 'ERROR':
+        print("❌ FAILED: Invalid HEALTH status should return ERROR")
+        return False
+
+    print("✓ PASSED: Malformed HEALTH messages rejected")
+    return True
+
+
+def test_17_health_unregistered_agent():
+    """Test 17: HEALTH from unregistered agent should be rejected."""
+    print("\n" + "="*60)
+    print("TEST 17: HEALTH Unregistered Agent")
+    print("="*60)
+
+    server_module.reset_state_for_tests()
+
+    response, _ = server_module.process_message(
+        "HEALTH ghost_agent 1700000000 OK 5 0",
+        ("127.0.0.1", 9994),
+        protocol='TCP',
+    )
+    if response != 'ERROR':
+        print("❌ FAILED: HEALTH from unregistered agent should return ERROR")
+        return False
+
+    print("✓ PASSED: Unregistered HEALTH rejected")
+    return True
+
+
 def run_all_tests():
     """Run all tests."""
     print("\n\n")
@@ -635,6 +726,9 @@ def run_all_tests():
         "Test 12: CPU Alert": test_12_cpu_alert_trigger(),
         "Test 13: Inactive Alert": test_13_inactive_agent_alert_trigger(),
         "Test 14: Error Storm Alert": test_14_error_storm_alert_trigger(),
+        "Test 15: Health Metadata Valid": test_15_health_metadata_valid(),
+        "Test 16: Health Metadata Malformed": test_16_health_metadata_malformed(),
+        "Test 17: Health Unregistered Agent": test_17_health_unregistered_agent(),
     }
     
     # Summary

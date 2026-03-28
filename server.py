@@ -24,6 +24,7 @@ error_timestamps = []
 last_error_alert_time = 0.0
 alerts_lock = threading.Lock()
 alerts = []  # list of {timestamp, type, agent_id, message}
+HEALTH_STATUSES = {'OK', 'DEGRADED', 'CRITICAL'}
 
 
 def record_alert(alert_type, message, agent_id=None):
@@ -130,6 +131,11 @@ def validate_report(cpu_pct, ram_mb):
     return 0 <= cpu_pct <= 100 and ram_mb >= 0
 
 
+def validate_health(status, uptime_s, error_count):
+    """Validate health metadata values."""
+    return status in HEALTH_STATUSES and uptime_s >= 0 and error_count >= 0
+
+
 def process_message(message, addr, protocol='TCP'):
     """Process one protocol message and return (response, should_close)."""
     global total_reports
@@ -160,6 +166,13 @@ def process_message(message, addr, protocol='TCP'):
                 'protocol': protocol,
                 'addr': str(addr),
                 'cpu_alert_active': False,
+                'health': {
+                    'timestamp': 0,
+                    'status': 'OK',
+                    'uptime_s': 0.0,
+                    'error_count': 0,
+                    'last_health_time': 0.0,
+                },
             }
 
         print(f"[{protocol} {addr}] Agent registered: {agent_id} ({hostname})")
@@ -214,6 +227,49 @@ def process_message(message, addr, protocol='TCP'):
 
         except ValueError:
             print(f"[{protocol} {addr}] ERROR: Invalid metric format")
+            register_error_response()
+            return 'ERROR', False
+
+    if message.startswith('HEALTH'):
+        if len(tokens) < 6:
+            print(f"[{protocol} {addr}] ERROR: Malformed HEALTH message")
+            register_error_response()
+            return 'ERROR', False
+
+        try:
+            agent_id = tokens[1]
+            health_timestamp = int(tokens[2])
+            status = tokens[3]
+            uptime_s = float(tokens[4])
+            error_count = int(tokens[5])
+
+            if not validate_health(status, uptime_s, error_count):
+                print(f"[{protocol} {addr}] ERROR: Invalid HEALTH values")
+                register_error_response()
+                return 'ERROR', False
+
+            with agents_lock:
+                if agent_id not in agents:
+                    print(f"[{protocol} {addr}] WARNING: HEALTH from unregistered agent {agent_id}")
+                    register_error_response()
+                    return 'ERROR', False
+
+                agents[agent_id]['health'] = {
+                    'timestamp': health_timestamp,
+                    'status': status,
+                    'uptime_s': uptime_s,
+                    'error_count': error_count,
+                    'last_health_time': time.time(),
+                }
+
+            print(
+                f"[{protocol} {addr}] Health recorded: {agent_id} "
+                f"status={status} uptime={uptime_s:.1f}s errors={error_count}"
+            )
+            return 'OK', False
+
+        except ValueError:
+            print(f"[{protocol} {addr}] ERROR: Invalid HEALTH format")
             register_error_response()
             return 'ERROR', False
 
@@ -321,9 +377,13 @@ def statistics_thread():
                 print(f"  - {alert['timestamp']} {alert['type']}{agent_label}: {alert['message']}")
         if active_agents:
             for agent_id, info in active_agents.items():
+                health = info.get('health', {})
+                health_status = health.get('status', 'N/A')
+                health_errors = health.get('error_count', 0)
                 print(
                     f"  {agent_id} ({info['hostname']}) [{info['protocol']}]: "
-                    f"CPU={info['cpu_pct']:.1f}% RAM={info['ram_mb']:.0f}MB"
+                    f"CPU={info['cpu_pct']:.1f}% RAM={info['ram_mb']:.0f}MB "
+                    f"HEALTH={health_status} ERR={health_errors}"
                 )
         print("=" * 23 + "\n")
 
