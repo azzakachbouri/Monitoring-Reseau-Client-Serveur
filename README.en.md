@@ -240,7 +240,6 @@ python test_splunk_forwarder.py # 7 tests — Splunk forwarder (mocked, no live 
 
 Honesty first — this project is solid but not finished:
 
-- [ ] GitHub Actions CI (lint + automated tests on every push)
 - [ ] Test the proxy against a service other than our own (full generalization)
 
 ---

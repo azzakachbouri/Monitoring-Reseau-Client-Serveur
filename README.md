@@ -1,5 +1,6 @@
 # 🛡️ Monitoring Réseau Client-Serveur — Proxy TCP de détection scan/flood + Splunk
 
+![CI](https://github.com/azzakachbouri/Monitoring-Reseau-Client-Serveur/actions/workflows/ci.yml/badge.svg)
 🇫🇷 Français | [🇬🇧 English version](README.en.md)
 
 > **TL;DR (EN):** A lightweight TCP proxy that sits in front of any service, detects port scans and connection floods in real time, classifies them against **MITRE ATT&CK** (T1046, T1498), auto-blocks offending IPs (fail-open on internal errors), and forwards every event to **Splunk** via HTTP Event Collector. Ships with Docker Compose, a Flask/Chart.js monitoring dashboard for the underlying client-server layer, and 28 automated tests.
@@ -240,9 +241,7 @@ python test_splunk_forwarder.py # 7 tests — forwarder Splunk (mocké, pas beso
 
 Honnêteté d'abord — ce projet est solide mais pas terminé :
 
-- [ ] CI GitHub Actions (lint + tests automatiques à chaque push)
 - [ ] Tester le proxy contre un service autre que le nôtre (généralisation complète)
-- [ ] README en anglais complet (pour l'instant, résumé en tête de document seulement)
 
 ---
 
