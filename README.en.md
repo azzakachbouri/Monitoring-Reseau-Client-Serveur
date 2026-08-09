@@ -1,3 +1,5 @@
+![CI](https://github.com/azzakachbouri/Monitoring-Reseau-Client-Serveur/actions/workflows/ci.yml/badge.svg)
+
 [🇫🇷 Version française](README.md) | 🇬🇧 English
 
 # 🛡️ Client-Server Network Monitoring — TCP Proxy with Scan/Flood Detection + Splunk
