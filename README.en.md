@@ -43,8 +43,6 @@ Everything is covered by automated tests (28 in total) and designed to run entir
 
 ## 2. Demo
 
-> Screenshots live in `docs/screenshots/` — same files as the French README, so they render here too.
-
 ### Live detection
 
 **Scan detected** (`SCAN_DETECTED`, T1046) — several 0-byte probes from the same IP:

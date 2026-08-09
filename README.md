@@ -43,8 +43,6 @@ Le tout est testé automatiquement (28 tests au total) et conçu pour être 100%
 
 ## 2. Démonstration
 
-> Place tes captures dans `docs/screenshots/` avec ces noms, et elles s'afficheront automatiquement ici sur GitHub.
-
 ### Détection en direct
 
 **Scan détecté** (`SCAN_DETECTED`, T1046) — plusieurs sondes 0-octet depuis la même IP :
@@ -197,8 +195,6 @@ Le proxy protège un serveur de monitoring TCP/UDP développé au départ comme 
 - Auto-cleanup des agents inactifs (fenêtre de 3×T)
 - Alertes automatiques : `CPU_HIGH`, `AGENT_INACTIVE`, `ERROR_STORM`
 - Export CSV des statistiques
-
-Détails complets du protocole, des messages et de la validation : voir [`docs/legacy-protocol.md`](docs/legacy-protocol.md) _(section à extraire de l'ancien README si besoin d'aller plus loin)_.
 
 ---
 
