@@ -218,35 +218,34 @@ python test_splunk_forwarder.py # 7 tests — Splunk forwarder (mocked, no live 
 
 ```
 .
-├── server.py                # TCP + UDP server (monitoring)
+├── server.py                  # Serveur TCP + UDP (monitoring)
 ├── client.py / client_simple.py   # Agents
-├── flask_api.py              # Web dashboard
-├── proxy.py                  # Attachable TCP proxy — detects, blocks, relays
-├── security_core.py          # Scan/flood detector + MITRE ATT&CK tagging
-├── splunk_forwarder.py       # events.jsonl → Splunk HEC forwarder
-├── config.py                 # All configuration (thresholds, tokens, URLs)
+├── flask_api.py                # Dashboard web
+├── proxy.py                    # Proxy TCP attachable — détecte, bloque, relaie
+├── security_core.py            # Détecteur scan/flood + tags MITRE ATT&CK
+├── splunk_forwarder.py         # Forwarder events.jsonl → Splunk HEC
+├── config.py                   # Toute la configuration (seuils, tokens, URLs)
+├── events_store.py             # Stockage/gestion des events (lecture/écriture events.jsonl)
+├── generate_cert.py            # Génère server.crt / server.key (TLS)
+├── generate_rapport.py         # Génère security_report.md
 ├── scripts/
-│   ├── simulate_scan.py      # Scan simulation for the demo
-│   └── simulate_flood.py     # Flood simulation for the demo
-├── test_suite.py             # Monitoring tests (17)
-├── test_security_core.py     # Detector tests (7)
-├── test_splunk_forwarder.py  # Forwarder tests (7)
+│   ├── simulate_scan.py        # Simule un scan pour la démo
+│   └── simulate_flood.py       # Simule un flood pour la démo
+├── templates/                  # Templates HTML du dashboard (flask_api.py)
+├── test_suite.py                # Tests monitoring (17)
+├── test_security_core.py        # Tests détecteur (7)
+├── test_splunk_forwarder.py     # Tests forwarder (7)
 ├── docker-compose.yml
 ├── Dockerfile
-└── docs/screenshots/         # Screenshots used in this README
+├── requirements.txt             # Dépendances Python
+├── run_demo.bat                 # Lance la démo complète (Windows)
+├── .github/workflows/ci.yml     # Pipeline CI (tests + lint automatiques)
+└── docs/screenshots/            # Captures pour ce README
 ```
 
 ---
 
-## 10. What's left to do
-
-Honesty first — this project is solid but not finished:
-
-- [ ] Test the proxy against a service other than our own (full generalization)
-
----
-
-## 11. Authors
+## 10. Authors
 
 **Azza Kachbouri** — anomaly detector (scan/flood, MITRE ATT&CK tagging), Splunk forwarder
 **Dhia Selmi** — TCP proxy, authentication, TLS, Docker
