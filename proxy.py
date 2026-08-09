@@ -45,7 +45,9 @@ def _classify_and_close(addr_str, start_time, byte_counter, threads):
 
 
 def handle_connection(client_conn, addr, target_host, target_port, target_tls=False, target_tls_context=None, send_proxy_header=False):
-    addr_str = str(addr)
+    addr_str = addr[0]  # IP seule : le port source change à chaque connexion,
+    # donc str(addr) (IP+port) empêchait de jamais reconnaître deux connexions
+    # comme venant de la même IP.
     start_time = time.time()
     try:
         if security_core.is_blocked(addr_str) or security_core.register_connection_open(addr_str):
