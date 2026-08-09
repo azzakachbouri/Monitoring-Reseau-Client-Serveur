@@ -1,8 +1,8 @@
+# 🛡️ Client-Server Network Monitoring — TCP Proxy with Scan/Flood Detection + Splunk
+
 ![CI](https://github.com/azzakachbouri/Monitoring-Reseau-Client-Serveur/actions/workflows/ci.yml/badge.svg)
 
 [🇫🇷 Version française](README.md) | 🇬🇧 English
-
-# 🛡️ Client-Server Network Monitoring — TCP Proxy with Scan/Flood Detection + Splunk
 
 > A lightweight TCP proxy that sits in front of any service, detects port scans and connection floods in real time, classifies them against **MITRE ATT&CK** (T1046, T1498), auto-blocks offending IPs (fail-open on internal errors), and forwards every event to **Splunk** via HTTP Event Collector. Ships with Docker Compose, a Flask/Chart.js monitoring dashboard for the underlying client-server layer, and 28 automated tests.
 

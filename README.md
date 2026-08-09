@@ -5,6 +5,7 @@
 🇫🇷 Français | [🇬🇧 English version](README.en.md)
 
 Un proxy TCP léger qui se place devant n'importe quel service, détecte en temps réel les scans de ports et les floods de connexions, les classe selon le référentiel MITRE ATT&CK (T1046, T1498), bloque automatiquement les IPs fautives (avec un comportement fail-open en cas d'erreur interne), et transmet chaque événement à Splunk via HTTP Event Collector. Le projet inclut un déploiement Docker Compose, un dashboard de monitoring Flask/Chart.js pour la couche client-serveur sous-jacente, et 28 tests automatisés.
+
 Projet réalisé par **Azza Kachbouri** et **Dhia Selmi**.
 
 ---
